@@ -15,32 +15,32 @@ export function useVisits() {
   const loadVisits = useCallback(async () => {
     try {
       setIsLoading(true);
-      
+
       logger.log('🌍 AMBIENTE:', {
         hostname: typeof window !== 'undefined' ? window.location.hostname : 'server',
         isLocal: typeof window !== 'undefined' ? window.location.hostname.includes('localhost') : false,
         userAgent: typeof window !== 'undefined' ? navigator.userAgent : 'server'
       });
-      
-      // Primeiro: carregar do localStorage
-      const localVisits = visitsService.getLocalVisits();
+
+      // Primeiro: carregar do IndexedDB (Dexie)
+      const localVisits = await visitsService.getLocalVisits();
       logger.log('📱 Visitas locais carregadas:', localVisits.length);
-      
+
       // Segundo: tentar carregar do Firebase se usuário autenticado
       if (user?.organizationId) {
         try {
           logger.log('🔥 Buscando visitas do Firebase para organização:', user.organizationId);
           const firebaseVisits = await firebaseVisitsService.getVisitsByOrganization(user.organizationId);
           logger.log('🔥 Visitas do Firebase carregadas:', firebaseVisits.length);
-          
+
           // LÓGICA: Se tem visitas do Firebase, limpar LocalStorage e usar só Firebase
           if (firebaseVisits.length > 0) {
             logger.log('🧹 Limpando LocalStorage e carregando só do Firebase');
-            
+
             // Filtrar apenas visitas locais que NÃO estão sincronizadas (pending)
             const pendingLocalVisits = localVisits.filter(visit => visit.syncStatus === 'pending');
             logger.log('📱 Visitas locais pendentes (mantendo):', pendingLocalVisits.length);
-            
+
             // Marcar todas as visitas do Firebase como sincronizadas
             const syncedFirebaseVisits: VisitForm[] = firebaseVisits.map(fbVisit => ({
               ...fbVisit,
@@ -48,13 +48,11 @@ export function useVisits() {
               firebaseId: fbVisit.id,
               id: fbVisit.id
             }));
-            
-            // Combinar: visitas pendentes locais + visitas do Firebase
+
+            // Persistir visitas do Firebase no IndexedDB (preserva pendentes com IDs locais)
+            await visitsService.setFirebaseVisits(syncedFirebaseVisits);
+
             const allVisits = [...pendingLocalVisits, ...syncedFirebaseVisits];
-            
-            // Salvar no LocalStorage: pendentes + firebase
-            localStorage.setItem('entomonitec_visits', JSON.stringify(allVisits));
-            
             logger.log('✅ Total de visitas:', allVisits.length, '(pendentes:', pendingLocalVisits.length, '+ firebase:', syncedFirebaseVisits.length, ')');
             setVisits(allVisits);
           } else {
@@ -70,7 +68,7 @@ export function useVisits() {
         logger.log('👤 Usuário não autenticado, usando apenas dados locais');
         setVisits(localVisits);
       }
-      
+
       setError(null);
     } catch (err) {
       setError('Erro ao carregar visitas');
@@ -84,34 +82,34 @@ export function useVisits() {
   const syncVisits = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
       const result = await visitsService.syncVisits();
-      
+
       if (result.success) {
         // Recarregar visitas após sincronização
         loadVisits();
-        return { 
-          success: true, 
-          synced: result.synced, 
+        return {
+          success: true,
+          synced: result.synced,
           errors: result.errors,
-          message: result.message 
+          message: result.message
         };
       } else {
-        return { 
-          success: false, 
-          synced: result.synced, 
+        return {
+          success: false,
+          synced: result.synced,
           errors: result.errors,
-          message: result.message 
+          message: result.message
         };
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro na sincronização';
       setError(errorMessage);
       logger.error('Erro na sincronização:', err);
-      return { 
-        success: false, 
-        synced: 0, 
+      return {
+        success: false,
+        synced: 0,
         errors: 1,
         message: errorMessage
       };
@@ -151,15 +149,18 @@ export function useVisits() {
     }
   }, [loadVisits]);
 
-  // Obter estatísticas
-  const getStats = useCallback(() => {
-    return visitsService.getVisitStats();
-  }, []);
+  // Obter estatísticas (computado do estado atual — reativo)
+  const getStats = useCallback(() => ({
+    total: visits.length,
+    routine: visits.filter(v => v.type === 'routine').length,
+    liraa: visits.filter(v => v.type === 'liraa').length,
+    pendingSync: visits.filter(v => v.syncStatus === 'pending').length,
+  }), [visits]);
 
   // Carregar visitas na inicialização e sincronizar automaticamente
   useEffect(() => {
     loadVisits();
-    
+
     // Sincronizar automaticamente se o usuário estiver autenticado
     if (user) {
       logger.log('🔄 Usuário autenticado, iniciando sincronização automática...');

@@ -1,8 +1,8 @@
-import { 
-  VisitForm, 
-  RoutineVisitForm, 
-  LIRAAVisitForm, 
-  CreateRoutineVisitRequest, 
+import {
+  VisitForm,
+  RoutineVisitForm,
+  LIRAAVisitForm,
+  CreateRoutineVisitRequest,
   CreateLIRAAVisitRequest,
   UpdateVisitRequest,
   VisitResponse,
@@ -10,24 +10,17 @@ import {
 } from '@/types/visits';
 import { IUser } from '@/types/organization';
 import { firebaseVisitsService } from './firebaseVisitsService';
+import { db } from '@/lib/offlineDb';
 import logger from '@/lib/logger';
 
 class VisitsService {
-  private readonly STORAGE_KEY = 'entomonitec_visits';
-  private readonly SYNC_QUEUE_KEY = 'entomonitec_sync_queue';
 
-  // Salvar visita localmente (offline)
+  // Salvar visita localmente (offline) — IndexedDB via Dexie
   async saveVisitLocally(visit: VisitForm): Promise<void> {
     try {
-      const existingVisits = this.getLocalVisits();
-      const updatedVisits = [visit, ...existingVisits];
-      
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updatedVisits));
-      
-      // Adicionar à fila de sincronização
-      this.addToSyncQueue(visit.id);
-      
-      logger.log('Visita salva localmente:', visit.id);
+      await db.visits.put(visit);
+      await this.addToSyncQueue(visit.id);
+      logger.log('Visita salva localmente (IndexedDB):', visit.id);
     } catch (error) {
       logger.error('Erro ao salvar visita localmente:', error);
       throw error;
@@ -35,34 +28,43 @@ class VisitsService {
   }
 
   // Obter visitas salvas localmente
-  getLocalVisits(): VisitForm[] {
+  async getLocalVisits(): Promise<VisitForm[]> {
     try {
-      const visits = localStorage.getItem(this.STORAGE_KEY);
-      return visits ? JSON.parse(visits) : [];
+      return await db.visits.orderBy('createdAt').reverse().toArray();
     } catch (error) {
       logger.error('Erro ao obter visitas locais:', error);
       return [];
     }
   }
 
-  // Adicionar à fila de sincronização
-  private addToSyncQueue(visitId: string): void {
+  // Persistir visitas vindas do Firebase (upsert — preserva pendentes com IDs locais)
+  async setFirebaseVisits(firebaseVisits: VisitForm[]): Promise<void> {
     try {
-      const queue = this.getSyncQueue();
-      if (!queue.includes(visitId)) {
-        queue.push(visitId);
-        localStorage.setItem(this.SYNC_QUEUE_KEY, JSON.stringify(queue));
+      if (firebaseVisits.length > 0) {
+        await db.visits.bulkPut(firebaseVisits);
+      }
+    } catch (error) {
+      logger.error('Erro ao persistir visitas do Firebase:', error);
+    }
+  }
+
+  // Adicionar à fila de sincronização
+  private async addToSyncQueue(visitId: string): Promise<void> {
+    try {
+      const existing = await db.syncQueue.where('visitId').equals(visitId).count();
+      if (existing === 0) {
+        await db.syncQueue.add({ visitId, createdAt: new Date(), retries: 0 });
       }
     } catch (error) {
       logger.error('Erro ao adicionar à fila de sincronização:', error);
     }
   }
 
-  // Obter fila de sincronização
-  getSyncQueue(): string[] {
+  // Obter fila de sincronização (lista de IDs)
+  async getSyncQueue(): Promise<string[]> {
     try {
-      const queue = localStorage.getItem(this.SYNC_QUEUE_KEY);
-      return queue ? JSON.parse(queue) : [];
+      const records = await db.syncQueue.orderBy('createdAt').toArray();
+      return records.map(r => r.visitId);
     } catch (error) {
       logger.error('Erro ao obter fila de sincronização:', error);
       return [];
@@ -70,13 +72,22 @@ class VisitsService {
   }
 
   // Remover da fila de sincronização
-  private removeFromSyncQueue(visitId: string): void {
+  private async removeFromSyncQueue(visitId: string): Promise<void> {
     try {
-      const queue = this.getSyncQueue();
-      const updatedQueue = queue.filter(id => id !== visitId);
-      localStorage.setItem(this.SYNC_QUEUE_KEY, JSON.stringify(updatedQueue));
+      await db.syncQueue.where('visitId').equals(visitId).delete();
     } catch (error) {
       logger.error('Erro ao remover da fila de sincronização:', error);
+    }
+  }
+
+  // Limpar todos os dados locais
+  async clearLocalData(): Promise<void> {
+    try {
+      await db.visits.clear();
+      await db.syncQueue.clear();
+      logger.log('Dados locais limpos do IndexedDB');
+    } catch (error) {
+      logger.error('Erro ao limpar dados locais:', error);
     }
   }
 
@@ -144,16 +155,10 @@ class VisitsService {
     return visit;
   }
 
-  // Atualizar visita local
-  private updateLocalVisit(updatedVisit: VisitForm): void {
+  // Atualizar visita local (upsert no IndexedDB)
+  private async updateLocalVisit(updatedVisit: VisitForm): Promise<void> {
     try {
-      const visits = this.getLocalVisits();
-      const visitIndex = visits.findIndex(v => v.id === updatedVisit.id);
-      
-      if (visitIndex !== -1) {
-        visits[visitIndex] = updatedVisit;
-        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(visits));
-      }
+      await db.visits.put(updatedVisit);
     } catch (error) {
       logger.error('Erro ao atualizar visita local:', error);
     }
@@ -162,25 +167,21 @@ class VisitsService {
   // Atualizar visita
   async updateVisit(visitId: string, updates: UpdateVisitRequest): Promise<VisitForm | null> {
     try {
-      const visits = this.getLocalVisits();
-      const visitIndex = visits.findIndex(v => v.id === visitId);
-      
-      if (visitIndex === -1) {
+      const visit = await db.visits.get(visitId);
+
+      if (!visit) {
         throw new Error('Visita não encontrada');
       }
 
       const updatedVisit = {
-        ...visits[visitIndex],
+        ...visit,
         ...updates,
         updatedAt: new Date()
       };
 
-      visits[visitIndex] = updatedVisit;
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(visits));
-      
-      // Adicionar à fila de sincronização
-      this.addToSyncQueue(visitId);
-      
+      await db.visits.put(updatedVisit);
+      await this.addToSyncQueue(visitId);
+
       return updatedVisit;
     } catch (error) {
       logger.error('Erro ao atualizar visita:', error);
@@ -191,9 +192,8 @@ class VisitsService {
   // Excluir visita
   async deleteVisit(visitId: string): Promise<void> {
     try {
-      const visits = this.getLocalVisits();
-      const visit = visits.find(v => v.id === visitId);
-      
+      const visit = await db.visits.get(visitId);
+
       if (!visit) {
         throw new Error('Visita não encontrada');
       }
@@ -207,14 +207,10 @@ class VisitsService {
           logger.warn('⚠️ Erro ao excluir do Firebase, mas continuando com exclusão local:', firebaseError);
         }
       }
-      
-      // Excluir do localStorage
-      const updatedVisits = visits.filter(v => v.id !== visitId);
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(updatedVisits));
-      
-      // Remover da fila de sincronização
-      this.removeFromSyncQueue(visitId);
-      
+
+      await db.visits.delete(visitId);
+      await this.removeFromSyncQueue(visitId);
+
       logger.log('✅ Visita excluída localmente:', visitId);
     } catch (error) {
       logger.error('❌ Erro ao excluir visita:', error);
@@ -224,7 +220,7 @@ class VisitsService {
 
   // Sincronizar visitas com o Firebase
   async syncVisits(): Promise<{ success: boolean; synced: number; errors: number; message?: string }> {
-    const queue = this.getSyncQueue();
+    const queue = await this.getSyncQueue();
     let synced = 0;
     let errors = 0;
 
@@ -236,56 +232,47 @@ class VisitsService {
 
     for (const visitId of queue) {
       try {
-        const visits = this.getLocalVisits();
-        const visit = visits.find(v => v.id === visitId);
-        
+        const visit = await db.visits.get(visitId);
+
         if (visit) {
-          
           // Marcar como sincronizando
-          const syncingVisit = { ...visit, syncStatus: 'syncing' as const };
-          this.updateLocalVisit(syncingVisit);
-          
-          // Tentar salvar no Firebase diretamente
+          await this.updateLocalVisit({ ...visit, syncStatus: 'syncing' });
+
+          // Tentar salvar no Firebase
           const { id: firebaseId, photos: syncedPhotos } = await firebaseVisitsService.createVisit(visit);
-          
-          // Atualizar o ID local com o ID do Firebase e marcar como sincronizada
-          const updatedVisit = { 
-            ...visit, 
-            firebaseId, 
+
+          // Marcar como sincronizada
+          await this.updateLocalVisit({
+            ...visit,
+            firebaseId,
             photos: syncedPhotos.length > 0 ? syncedPhotos : visit.photos,
-            syncStatus: 'synced' as const,
+            syncStatus: 'synced',
             updatedAt: new Date()
-          };
-          this.updateLocalVisit(updatedVisit);
-          
-          // Remover da fila de sincronização
-          this.removeFromSyncQueue(visitId);
+          });
+
+          await this.removeFromSyncQueue(visitId);
           synced++;
-          
+
           logger.log(`✅ Visita ${visitId} sincronizada com Firebase: ${firebaseId}`);
         }
       } catch (error) {
         logger.error(`❌ Erro ao sincronizar visita ${visitId}:`, error);
-        
-        // Verificar se é erro de permissão
-        const isPermissionError = error instanceof Error && 
+
+        const isPermissionError = error instanceof Error &&
           (error.message.includes('permission') || error.message.includes('Permission'));
-        
-        // Marcar como erro de sincronização
-        const visits = this.getLocalVisits();
-        const visit = visits.find(v => v.id === visitId);
+
+        const visit = await db.visits.get(visitId);
         if (visit) {
-          const errorVisit = { 
-            ...visit, 
-            syncStatus: 'error' as const,
-            syncError: isPermissionError ? 
-              'Erro de permissão no Firebase. Verifique as regras de segurança.' :
-              (error instanceof Error ? error.message : 'Erro desconhecido'),
+          await this.updateLocalVisit({
+            ...visit,
+            syncStatus: 'error',
+            syncError: isPermissionError
+              ? 'Erro de permissão no Firebase. Verifique as regras de segurança.'
+              : (error instanceof Error ? error.message : 'Erro desconhecido'),
             updatedAt: new Date()
-          };
-          this.updateLocalVisit(errorVisit);
+          });
         }
-        
+
         errors++;
       }
     }
@@ -295,12 +282,12 @@ class VisitsService {
 
   // Calcular nível de risco para visitas de rotina
   private calculateRiskLevel(
-    breedingSites: any, 
-    larvaeFound: boolean, 
+    breedingSites: any,
+    larvaeFound: boolean,
     pupaeFound: boolean
   ): 'low' | 'medium' | 'high' | 'critical' {
     let riskScore = 0;
-    
+
     // Pontos por tipo de criadouro
     const breedingSiteScores = {
       waterReservoir: 3,
@@ -336,14 +323,14 @@ class VisitsService {
 
   // Calcular índice LIRAa
   private calculateLIRAaIndex(
-    containers: any, 
+    containers: any,
     positiveContainers: any
   ): number {
     const totalContainers = Object.values(containers).reduce((sum: number, count: any) => sum + count, 0);
     const totalPositive = Object.values(positiveContainers).reduce((sum: number, count: any) => sum + count, 0);
-    
+
     if (totalContainers === 0) return 0;
-    
+
     return (totalPositive / totalContainers) * 100;
   }
 
@@ -352,87 +339,52 @@ class VisitsService {
     return Math.random().toString(36).substring(2) + Date.now().toString(36);
   }
 
-  // Obter estatísticas das visitas
-  getVisitStats(): {
-    total: number;
-    routine: number;
-    liraa: number;
-    pendingSync: number;
-  } {
-    const visits = this.getLocalVisits();
-    const queue = this.getSyncQueue();
-    
-    return {
-      total: visits.length,
-      routine: visits.filter(v => v.type === 'routine').length,
-      liraa: visits.filter(v => v.type === 'liraa').length,
-      pendingSync: queue.length
-    };
-  }
-
   // Tentar sincronizar uma visita específica que falhou
   async retrySyncVisit(visitId: string): Promise<boolean> {
     try {
-      const visits = this.getLocalVisits();
-      const visit = visits.find(v => v.id === visitId);
-      
+      const visit = await db.visits.get(visitId);
+
       if (!visit) {
         throw new Error('Visita não encontrada');
       }
 
-      // Verificar conectividade
       const isConnected = await firebaseVisitsService.checkConnectivity();
       if (!isConnected) {
         throw new Error('Sem conexão com o servidor');
       }
 
-      // Marcar como sincronizando
-      const syncingVisit = { ...visit, syncStatus: 'syncing' as const };
-      this.updateLocalVisit(syncingVisit);
+      await this.updateLocalVisit({ ...visit, syncStatus: 'syncing' });
 
-      // Tentar sincronizar
       const { id: firebaseId, photos: syncedPhotos } = await firebaseVisitsService.createVisit(visit);
-      
-      // Marcar como sincronizada
-      const updatedVisit = { 
-        ...visit, 
-        firebaseId, 
+
+      await this.updateLocalVisit({
+        ...visit,
+        firebaseId,
         photos: syncedPhotos.length > 0 ? syncedPhotos : visit.photos,
-        syncStatus: 'synced' as const,
+        syncStatus: 'synced',
         syncError: undefined,
         updatedAt: new Date()
-      };
-      this.updateLocalVisit(updatedVisit);
-      
-      // Remover da fila se estiver lá
-      this.removeFromSyncQueue(visitId);
-      
+      });
+
+      await this.removeFromSyncQueue(visitId);
+
       logger.log(`✅ Visita ${visitId} re-sincronizada com sucesso: ${firebaseId}`);
       return true;
     } catch (error) {
       logger.error(`❌ Erro ao re-sincronizar visita ${visitId}:`, error);
-      
-      // Marcar como erro
-      const visits = this.getLocalVisits();
-      const visit = visits.find(v => v.id === visitId);
+
+      const visit = await db.visits.get(visitId);
       if (visit) {
-        const errorVisit = { 
-          ...visit, 
-          syncStatus: 'error' as const,
+        await this.updateLocalVisit({
+          ...visit,
+          syncStatus: 'error',
           syncError: error instanceof Error ? error.message : 'Erro desconhecido',
           updatedAt: new Date()
-        };
-        this.updateLocalVisit(errorVisit);
+        });
       }
-      
+
       return false;
     }
-  }
-
-  // Limpar dados locais (útil para logout)
-  clearLocalData(): void {
-    localStorage.removeItem(this.STORAGE_KEY);
-    localStorage.removeItem(this.SYNC_QUEUE_KEY);
   }
 }
 

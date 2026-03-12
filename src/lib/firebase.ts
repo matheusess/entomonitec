@@ -1,6 +1,11 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import logger from '@/lib/logger';
 
@@ -24,7 +29,30 @@ export const app = initializeApp(firebaseConfig);
 
 // Serviços Firebase
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+/**
+ * Firestore com persistência offline (IndexedDB nativo do SDK).
+ * No server-side (SSR/API routes), usa Firestore padrão sem cache persistente.
+ * No client, habilita persistência multi-tab para que leituras funcionem offline.
+ */
+function createFirestoreDb() {
+  if (typeof window === 'undefined') {
+    // Server-side: sem persistência local (não há IndexedDB no Node)
+    return getFirestore(app);
+  }
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch {
+    // Já inicializado (ocorre em hot reload do Next.js dev)
+    return getFirestore(app);
+  }
+}
+
+export const db = createFirestoreDb();
 export const storage = getStorage(app);
 
 // Export default
