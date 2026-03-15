@@ -52,6 +52,7 @@ import GPSPermissionHelper from '@/components/GPSPermissionHelper';
 import { visitsService } from '@/services/visitsService';
 import { geocodingService } from '@/services/geocodingService';
 import { firebaseVisitsService } from '@/services/firebaseVisitsService';
+import { useOnlineSync } from '@/hooks/useOnlineSync';
 import logger from '@/lib/logger';
 
 export default function Visits() {
@@ -70,6 +71,9 @@ export default function Visits() {
   
   // Hook para gerenciar visitas
   const { visits: savedVisits, syncVisits, getStats, loadVisits } = useVisits();
+
+  // Sincronização offline
+  const { isOnline, pendingCount: wrapperPendingCount, isSyncing: isWrapperSyncing, lastSyncAt, syncNow } = useOnlineSync();
   
   const [routineForm, setRoutineForm] = useState<Partial<RoutineVisitForm>>({
     type: 'routine',
@@ -429,6 +433,9 @@ export default function Visits() {
   const handleSyncVisits = async () => {
     setIsSyncing(true);
     try {
+      // Flush wrapper queue (pendingWrites) first
+      await syncNow();
+
       const result = await syncVisits();
       
       if (result.success) {
@@ -511,12 +518,12 @@ export default function Visits() {
           <div className="bg-white p-3 rounded-lg shadow-sm border">
             <div className="flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${
-                navigator.onLine ? 'bg-green-500' : 'bg-red-500'
+                isOnline ? 'bg-green-500' : 'bg-red-500'
               }`} />
               <span className="text-xs font-medium text-gray-700">Internet</span>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              {navigator.onLine ? 'Online' : 'Offline'}
+              {isOnline ? 'Online' : 'Offline'}
             </p>
           </div>
 
@@ -835,24 +842,41 @@ export default function Visits() {
             </Card>
           </div>
 
+          {/* Offline notice */}
+          {!isOnline && (
+            <Card className="border-yellow-300 bg-yellow-50">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 text-yellow-800">
+                  <WifiOff className="h-4 w-4 flex-shrink-0" />
+                  <p className="text-sm font-medium">Você está offline. As visitas serão salvas localmente e sincronizadas quando a conexão voltar.</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Botão de Sincronização */}
-          {visitStats.pendingSync > 0 && (
+          {(visitStats.pendingSync > 0 || wrapperPendingCount > 0) && (
             <Card>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="font-medium">Sincronização Pendente</h3>
                     <p className="text-sm text-muted-foreground">
-                      {visitStats.pendingSync} visitas aguardando sincronização com o servidor
+                      {visitStats.pendingSync + wrapperPendingCount} ite{visitStats.pendingSync + wrapperPendingCount === 1 ? 'm aguardando' : 'ns aguardando'} sincronização com o servidor
                     </p>
+                    {lastSyncAt && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Última sincronização: {format(lastSyncAt, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                      </p>
+                    )}
                   </div>
-                  <Button onClick={handleSyncVisits} disabled={isSyncing} className="flex items-center space-x-2">
-                    {isSyncing ? (
+                  <Button onClick={handleSyncVisits} disabled={isSyncing || isWrapperSyncing || !isOnline} className="flex items-center space-x-2">
+                    {(isSyncing || isWrapperSyncing) ? (
                       <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
                     ) : (
                       <Zap className="h-4 w-4" />
                     )}
-                    <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+                    <span>{(isSyncing || isWrapperSyncing) ? 'Sincronizando...' : 'Sincronizar'}</span>
                   </Button>
                 </div>
               </CardContent>
