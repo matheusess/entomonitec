@@ -1,4 +1,5 @@
 import { db, auth } from '@/lib/firebase';
+import { withOfflineRead, withOfflineWrite } from '@/lib/firebaseWrapper';
 import { 
   collection, 
   addDoc, 
@@ -58,84 +59,88 @@ export class UserService {
    * Lista usuários de uma organização
    */
   static async listUsersByOrganization(organizationId: string): Promise<IUserWithId[]> {
-    try {
-      logger.log('👥 Carregando usuários da organização:', organizationId);
-      
-      const q = query(
-        collection(db, this.COLLECTION_NAME),
-        where('organizationId', '==', organizationId),
-        where('isActive', '==', true),
-        orderBy('createdAt', 'desc')
-      );
-      
-      const querySnapshot = await getDocs(q);
-      const users: IUserWithId[] = [];
-
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        users.push({
-          id: doc.id,
-          name: data.name,
-          email: data.email,
-          role: data.role,
-          organizationId: data.organizationId,
-          assignedNeighborhoods: data.assignedNeighborhoods || [],
-          permissions: data.permissions || [],
-          isActive: data.isActive ?? true,
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-          mustChangePassword: data.mustChangePassword,
-          lastLoginAt: data.lastLoginAt?.toDate()
-        });
-      });
-
-      logger.log('✅ Usuários carregados:', users.length);
-      return users;
-    } catch (error) {
-      logger.error('❌ Erro ao listar usuários:', error);
-      throw new Error('Falha ao carregar usuários');
-    }
+    return withOfflineRead<IUserWithId[]>(
+      `users_org_${organizationId}`,
+      this.COLLECTION_NAME,
+      async () => {
+        try {
+          logger.log('👥 Carregando usuários da organização:', organizationId);
+          const q = query(
+            collection(db, this.COLLECTION_NAME),
+            where('organizationId', '==', organizationId),
+            where('isActive', '==', true),
+            orderBy('createdAt', 'desc')
+          );
+          const querySnapshot = await getDocs(q);
+          const users: IUserWithId[] = [];
+          querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            users.push({
+              id: doc.id,
+              name: data.name,
+              email: data.email,
+              role: data.role,
+              organizationId: data.organizationId,
+              assignedNeighborhoods: data.assignedNeighborhoods || [],
+              permissions: data.permissions || [],
+              isActive: data.isActive ?? true,
+              createdAt: data.createdAt?.toDate() || new Date(),
+              updatedAt: data.updatedAt?.toDate() || new Date(),
+              mustChangePassword: data.mustChangePassword,
+              lastLoginAt: data.lastLoginAt?.toDate()
+            });
+          });
+          logger.log('✅ Usuários carregados:', users.length);
+          return users;
+        } catch (error) {
+          logger.error('❌ Erro ao listar usuários:', error);
+          throw new Error('Falha ao carregar usuários');
+        }
+      },
+    );
   }
 
   /**
    * Lista todos os usuários (apenas para Super Admin)
    */
   static async listAllUsers(): Promise<IUserWithId[]> {
-    try {
-      logger.log('👥 Carregando todos os usuários (Super Admin)');
-      
-      const q = query(
-        collection(db, this.COLLECTION_NAME),
-        orderBy('createdAt', 'desc')
-      );
-      
-      const querySnapshot = await getDocs(q);
-      const users: IUserWithId[] = [];
-
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        users.push({
-          id: doc.id,
-          name: data.name,
-          email: data.email,
-          role: data.role,
-          organizationId: data.organizationId || '',
-          assignedNeighborhoods: data.assignedNeighborhoods || [],
-          permissions: data.permissions || [],
-          isActive: data.isActive ?? true,
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-          mustChangePassword: data.mustChangePassword,
-          lastLoginAt: data.lastLoginAt?.toDate()
-        });
-      });
-
-      logger.log('✅ Todos os usuários carregados:', users.length);
-      return users;
-    } catch (error) {
-      logger.error('❌ Erro ao listar todos os usuários:', error);
-      throw new Error('Falha ao carregar usuários');
-    }
+    return withOfflineRead<IUserWithId[]>(
+      'users_all',
+      this.COLLECTION_NAME,
+      async () => {
+        try {
+          logger.log('👥 Carregando todos os usuários (Super Admin)');
+          const q = query(
+            collection(db, this.COLLECTION_NAME),
+            orderBy('createdAt', 'desc')
+          );
+          const querySnapshot = await getDocs(q);
+          const users: IUserWithId[] = [];
+          querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            users.push({
+              id: doc.id,
+              name: data.name,
+              email: data.email,
+              role: data.role,
+              organizationId: data.organizationId || '',
+              assignedNeighborhoods: data.assignedNeighborhoods || [],
+              permissions: data.permissions || [],
+              isActive: data.isActive ?? true,
+              createdAt: data.createdAt?.toDate() || new Date(),
+              updatedAt: data.updatedAt?.toDate() || new Date(),
+              mustChangePassword: data.mustChangePassword,
+              lastLoginAt: data.lastLoginAt?.toDate()
+            });
+          });
+          logger.log('✅ Todos os usuários carregados:', users.length);
+          return users;
+        } catch (error) {
+          logger.error('❌ Erro ao listar todos os usuários:', error);
+          throw new Error('Falha ao carregar usuários');
+        }
+      },
+    );
   }
 
   /**
@@ -194,110 +199,134 @@ export class UserService {
    * Busca um usuário por ID
    */
   static async getUser(userId: string): Promise<IUserWithId | null> {
-    try {
-      const docRef = doc(db, this.COLLECTION_NAME, userId);
-      const docSnap = await getDoc(docRef);
-
-      if (!docSnap.exists()) {
-        return null;
-      }
-
-      const data = docSnap.data();
-      return {
-        id: docSnap.id,
-        name: data.name,
-        email: data.email,
-        role: data.role,
-        organizationId: data.organizationId,
-        assignedNeighborhoods: data.assignedNeighborhoods || [],
-        permissions: data.permissions || [],
-        isActive: data.isActive ?? true,
-        createdAt: data.createdAt?.toDate() || new Date(),
-        updatedAt: data.updatedAt?.toDate() || new Date(),
-        mustChangePassword: data.mustChangePassword,
-        lastLoginAt: data.lastLoginAt?.toDate()
-      };
-    } catch (error) {
-      logger.error('❌ Erro ao buscar usuário:', error);
-      return null;
-    }
+    return withOfflineRead<IUserWithId | null>(
+      `user_${userId}`,
+      this.COLLECTION_NAME,
+      async () => {
+        try {
+          const docRef = doc(db, this.COLLECTION_NAME, userId);
+          const docSnap = await getDoc(docRef);
+          if (!docSnap.exists()) return null;
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            name: data.name,
+            email: data.email,
+            role: data.role,
+            organizationId: data.organizationId,
+            assignedNeighborhoods: data.assignedNeighborhoods || [],
+            permissions: data.permissions || [],
+            isActive: data.isActive ?? true,
+            createdAt: data.createdAt?.toDate() || new Date(),
+            updatedAt: data.updatedAt?.toDate() || new Date(),
+            mustChangePassword: data.mustChangePassword,
+            lastLoginAt: data.lastLoginAt?.toDate()
+          };
+        } catch (error) {
+          logger.error('❌ Erro ao buscar usuário:', error);
+          return null;
+        }
+      },
+    );
   }
 
   /**
    * Atualiza um usuário
    */
   static async updateUser(userId: string, updateData: IUpdateUserData): Promise<void> {
-    try {
-      const docRef = doc(db, this.COLLECTION_NAME, userId);
-      
-      const updatePayload: any = {
-        ...updateData,
-        updatedAt: Timestamp.now()
-      };
-
-      // Se mudou o role, atualizar permissões
-      if (updateData.role) {
-        updatePayload.permissions = this.getPermissionsByRole(updateData.role);
-      }
-
-      await updateDoc(docRef, updatePayload);
-      
-      logger.log('✅ Usuário atualizado:', userId);
-    } catch (error) {
-      logger.error('❌ Erro ao atualizar usuário:', error);
-      throw new Error('Falha ao atualizar usuário');
-    }
+    await withOfflineWrite(
+      {
+        type: 'update',
+        collection: this.COLLECTION_NAME,
+        docId: userId,
+        data: updateData as unknown as Record<string, unknown>,
+      },
+      async () => {
+        try {
+          const docRef = doc(db, this.COLLECTION_NAME, userId);
+          const updatePayload: any = { ...updateData, updatedAt: Timestamp.now() };
+          if (updateData.role) {
+            updatePayload.permissions = this.getPermissionsByRole(updateData.role);
+          }
+          await updateDoc(docRef, updatePayload);
+          logger.log('✅ Usuário atualizado:', userId);
+        } catch (error) {
+          logger.error('❌ Erro ao atualizar usuário:', error);
+          throw new Error('Falha ao atualizar usuário');
+        }
+      },
+    );
   }
 
   /**
    * Desativa um usuário (soft delete)
    */
   static async deactivateUser(userId: string): Promise<void> {
-    try {
-      const docRef = doc(db, this.COLLECTION_NAME, userId);
-      await updateDoc(docRef, {
-        isActive: false,
-        updatedAt: Timestamp.now()
-      });
-      
-      logger.log('✅ Usuário desativado:', userId);
-    } catch (error) {
-      logger.error('❌ Erro ao desativar usuário:', error);
-      throw new Error('Falha ao desativar usuário');
-    }
+    await withOfflineWrite(
+      {
+        type: 'update',
+        collection: this.COLLECTION_NAME,
+        docId: userId,
+        data: { isActive: false },
+      },
+      async () => {
+        try {
+          const docRef = doc(db, this.COLLECTION_NAME, userId);
+          await updateDoc(docRef, { isActive: false, updatedAt: Timestamp.now() });
+          logger.log('✅ Usuário desativado:', userId);
+        } catch (error) {
+          logger.error('❌ Erro ao desativar usuário:', error);
+          throw new Error('Falha ao desativar usuário');
+        }
+      },
+    );
   }
 
   /**
    * Remove um usuário permanentemente
    */
   static async deleteUser(userId: string): Promise<void> {
-    try {
-      const docRef = doc(db, this.COLLECTION_NAME, userId);
-      await deleteDoc(docRef);
-      
-      logger.log('✅ Usuário removido:', userId);
-    } catch (error) {
-      logger.error('❌ Erro ao remover usuário:', error);
-      throw new Error('Falha ao remover usuário');
-    }
+    await withOfflineWrite(
+      {
+        type: 'delete',
+        collection: this.COLLECTION_NAME,
+        docId: userId,
+      },
+      async () => {
+        try {
+          const docRef = doc(db, this.COLLECTION_NAME, userId);
+          await deleteDoc(docRef);
+          logger.log('✅ Usuário removido:', userId);
+        } catch (error) {
+          logger.error('❌ Erro ao remover usuário:', error);
+          throw new Error('Falha ao remover usuário');
+        }
+      },
+    );
   }
 
   /**
    * Reativa um usuário
    */
   static async reactivateUser(userId: string): Promise<void> {
-    try {
-      const docRef = doc(db, this.COLLECTION_NAME, userId);
-      await updateDoc(docRef, {
-        isActive: true,
-        updatedAt: Timestamp.now()
-      });
-      
-      logger.log('✅ Usuário reativado:', userId);
-    } catch (error) {
-      logger.error('❌ Erro ao reativar usuário:', error);
-      throw new Error('Falha ao reativar usuário');
-    }
+    await withOfflineWrite(
+      {
+        type: 'update',
+        collection: this.COLLECTION_NAME,
+        docId: userId,
+        data: { isActive: true },
+      },
+      async () => {
+        try {
+          const docRef = doc(db, this.COLLECTION_NAME, userId);
+          await updateDoc(docRef, { isActive: true, updatedAt: Timestamp.now() });
+          logger.log('✅ Usuário reativado:', userId);
+        } catch (error) {
+          logger.error('❌ Erro ao reativar usuário:', error);
+          throw new Error('Falha ao reativar usuário');
+        }
+      },
+    );
   }
 
   /**

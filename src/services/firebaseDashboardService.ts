@@ -7,6 +7,7 @@ import {
   limit
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
+import { withOfflineRead } from '@/lib/firebaseWrapper';
 import { VisitForm, LIRAAVisitForm } from '@/types/visits';
 import logger from '@/lib/logger';
 
@@ -74,9 +75,19 @@ class FirebaseDashboardService {
    * Busca dados consolidados do dashboard para uma organização
    */
   async getDashboardData(organizationId: string): Promise<DashboardData> {
+    return withOfflineRead<DashboardData>(
+      `dashboard_${organizationId}`,
+      this.VISITS_COLLECTION,
+      () => this._fetchDashboardData(organizationId),
+    );
+  }
+
+  private async _fetchDashboardData(organizationId: string): Promise<DashboardData> {
     try {
       logger.log('🔄 Buscando dados do dashboard para organização:', organizationId);
-      logger.log('🌍 Ambiente:', window.location.hostname);
+      if (typeof window !== 'undefined') {
+        logger.log('🌍 Ambiente:', window.location.hostname);
+      }
       logger.log('🔐 Firebase Auth:', auth.currentUser ? 'Autenticado' : 'Não autenticado');
       
       // PRIMEIRO: Buscar TODAS as visitas (sem filtro de organização) para debug
@@ -147,6 +158,14 @@ class FirebaseDashboardService {
    * Busca classificação de risco por bairro
    */
   async getNeighborhoodRisks(organizationId: string): Promise<NeighborhoodRisk[]> {
+    return withOfflineRead<NeighborhoodRisk[]>(
+      `neighborhood_risks_${organizationId}`,
+      this.VISITS_COLLECTION,
+      () => this._fetchNeighborhoodRisks(organizationId),
+    );
+  }
+
+  private async _fetchNeighborhoodRisks(organizationId: string): Promise<NeighborhoodRisk[]> {
     try {
       logger.log('🔄 Calculando riscos por bairro para organização:', organizationId);
       
@@ -180,6 +199,113 @@ class FirebaseDashboardService {
     } catch (error) {
       logger.error('❌ Erro ao buscar riscos por bairro:', error);
       throw new Error(`Falha ao carregar riscos por bairro: ${error}`);
+    }
+  }
+
+  /**
+   * Busca dados de visitas de rotina com classificação de prioridades
+   */
+  async getRoutineVisitData(organizationId: string): Promise<RoutineVisitData[]> {
+    return withOfflineRead<RoutineVisitData[]>(
+      `routine_visits_${organizationId}`,
+      this.VISITS_COLLECTION,
+      () => this._fetchRoutineVisitData(organizationId),
+    );
+  }
+
+  private async _fetchRoutineVisitData(organizationId: string): Promise<RoutineVisitData[]> {
+    try {
+      logger.log('🔄 Buscando dados de visitas de rotina para classificação:', organizationId);
+
+      // Buscar apenas visitas de rotina
+      const visitsQuery = query(
+        collection(db, this.VISITS_COLLECTION),
+        where('organizationId', '==', organizationId),
+        where('type', '==', 'routine'),
+        orderBy('createdAt', 'desc'),
+        limit(500)
+      );
+
+      const visitsSnapshot = await getDocs(visitsQuery);
+      const visits: VisitForm[] = [];
+
+      visitsSnapshot.forEach((doc) => {
+        const data = doc.data();
+        visits.push({
+          ...data,
+          id: doc.id,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date()
+        } as VisitForm);
+      });
+
+      logger.log(`✅ ${visits.length} visitas de rotina carregadas`);
+
+      // Agrupar por bairro
+      const neighborhoods = new Map<string, {
+        visits: VisitForm[];
+        totalVisits: number;
+        positiveVisits: number;
+        completedVisits: number;
+        lastUpdate: Date;
+        coordinates: [number, number][];
+      }>();
+
+      visits.forEach(visit => {
+        if (!visit.neighborhood) return;
+        const neighborhood = visit.neighborhood;
+        if (!neighborhoods.has(neighborhood)) {
+          neighborhoods.set(neighborhood, {
+            visits: [],
+            totalVisits: 0,
+            positiveVisits: 0,
+            completedVisits: 0,
+            lastUpdate: visit.createdAt,
+            coordinates: []
+          });
+        }
+        const data = neighborhoods.get(neighborhood)!;
+        data.visits.push(visit);
+        data.totalVisits += 1;
+        const hasLarvae = (visit as any).larvaeFound || (visit as any).pupaeFound;
+        if (hasLarvae) data.positiveVisits += 1;
+        if (visit.status === 'completed') data.completedVisits++;
+        if (visit.createdAt > data.lastUpdate) data.lastUpdate = visit.createdAt;
+        if (visit.location?.latitude && visit.location?.longitude) {
+          data.coordinates.push([visit.location.latitude, visit.location.longitude]);
+        }
+      });
+
+      // Converter para RoutineVisitData com classificação
+      const routineData: RoutineVisitData[] = [];
+      neighborhoods.forEach((data, name) => {
+        const iip = data.totalVisits > 0 ? (data.positiveVisits / data.totalVisits) * 100 : 0;
+        const coverage = data.totalVisits > 0 ? (data.completedVisits / data.totalVisits) * 100 : 0;
+        const classification = this.classifyPriority(iip, coverage);
+        let avgCoordinates: [number, number] | undefined;
+        if (data.coordinates.length > 0) {
+          const avgLat = data.coordinates.reduce((sum, c) => sum + c[0], 0) / data.coordinates.length;
+          const avgLng = data.coordinates.reduce((sum, c) => sum + c[1], 0) / data.coordinates.length;
+          avgCoordinates = [avgLat, avgLng];
+        }
+        routineData.push({
+          neighborhood: name,
+          totalVisits: data.totalVisits,
+          positiveVisits: data.positiveVisits,
+          completedVisits: data.completedVisits,
+          iip: Math.round(iip * 100) / 100,
+          coverage: Math.round(coverage * 100) / 100,
+          priority: classification.level,
+          classification,
+          lastUpdate: data.lastUpdate,
+          coordinates: avgCoordinates
+        });
+      });
+
+      return routineData.sort((a, b) => a.priority - b.priority);
+    } catch (error) {
+      logger.error('❌ Erro ao buscar dados de visitas de rotina:', error);
+      throw new Error(`Falha ao carregar dados de visitas de rotina: ${error}`);
     }
   }
 
@@ -600,118 +726,6 @@ class FirebaseDashboardService {
     };
   }
 
-  /**
-   * Busca dados de visitas de rotina com classificação de prioridades
-   */
-  async getRoutineVisitData(organizationId: string): Promise<RoutineVisitData[]> {
-    try {
-      logger.log('🔄 Buscando dados de visitas de rotina para classificação:', organizationId);
-      
-      // Buscar apenas visitas de rotina
-      const visitsQuery = query(
-        collection(db, this.VISITS_COLLECTION),
-        where('organizationId', '==', organizationId),
-        where('type', '==', 'routine'),
-        orderBy('createdAt', 'desc'),
-        limit(500)
-      );
-
-      const visitsSnapshot = await getDocs(visitsQuery);
-      const visits: VisitForm[] = [];
-
-      visitsSnapshot.forEach((doc) => {
-        const data = doc.data();
-        visits.push({
-          ...data,
-          id: doc.id,
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date()
-        } as VisitForm);
-      });
-
-      logger.log(`✅ ${visits.length} visitas de rotina carregadas`);
-
-      // Agrupar por bairro
-      const neighborhoods = new Map<string, {
-        visits: VisitForm[];
-        totalVisits: number;
-        positiveVisits: number;
-        completedVisits: number;
-        lastUpdate: Date;
-        coordinates: [number, number][];
-      }>();
-
-      visits.forEach(visit => {
-        if (!visit.neighborhood) return;
-
-        const neighborhood = visit.neighborhood;
-        if (!neighborhoods.has(neighborhood)) {
-          neighborhoods.set(neighborhood, {
-            visits: [],
-            totalVisits: 0,
-            positiveVisits: 0,
-            completedVisits: 0,
-            lastUpdate: visit.createdAt,
-            coordinates: []
-          });
-        }
-
-        const data = neighborhoods.get(neighborhood)!;
-        data.visits.push(visit);
-        data.totalVisits += 1;
-
-        // Verificar se tem larvas (visitas de rotina usam larvaeFound/pupaeFound)
-        const hasLarvae = (visit as any).larvaeFound || (visit as any).pupaeFound;
-        if (hasLarvae) {
-          data.positiveVisits += 1;
-        }
-
-        if (visit.status === 'completed') data.completedVisits++;
-        if (visit.createdAt > data.lastUpdate) data.lastUpdate = visit.createdAt;
-        
-        if (visit.location?.latitude && visit.location?.longitude) {
-          data.coordinates.push([visit.location.latitude, visit.location.longitude]);
-        }
-      });
-
-      // Converter para RoutineVisitData com classificação
-      const routineData: RoutineVisitData[] = [];
-      
-      neighborhoods.forEach((data, name) => {
-        const iip = data.totalVisits > 0 ? (data.positiveVisits / data.totalVisits) * 100 : 0;
-        const coverage = data.totalVisits > 0 ? (data.completedVisits / data.totalVisits) * 100 : 0;
-        
-        const classification = this.classifyPriority(iip, coverage);
-        
-        // Calcular coordenadas médias
-        let avgCoordinates: [number, number] | undefined;
-        if (data.coordinates.length > 0) {
-          const avgLat = data.coordinates.reduce((sum, coord) => sum + coord[0], 0) / data.coordinates.length;
-          const avgLng = data.coordinates.reduce((sum, coord) => sum + coord[1], 0) / data.coordinates.length;
-          avgCoordinates = [avgLat, avgLng];
-        }
-
-        routineData.push({
-          neighborhood: name,
-          totalVisits: data.totalVisits,
-          positiveVisits: data.positiveVisits,
-          completedVisits: data.completedVisits,
-          iip: Math.round(iip * 100) / 100,
-          coverage: Math.round(coverage * 100) / 100,
-          priority: classification.level,
-          classification,
-          lastUpdate: data.lastUpdate,
-          coordinates: avgCoordinates
-        });
-      });
-
-      // Ordenar por prioridade (menor número = maior prioridade)
-      return routineData.sort((a, b) => a.priority - b.priority);
-    } catch (error) {
-      logger.error('❌ Erro ao buscar dados de visitas de rotina:', error);
-      throw new Error(`Falha ao carregar dados de visitas de rotina: ${error}`);
-    }
-  }
 }
 
 export const firebaseDashboardService = new FirebaseDashboardService();
