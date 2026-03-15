@@ -433,9 +433,6 @@ export default function Visits() {
   const handleSyncVisits = async () => {
     setIsSyncing(true);
     try {
-      // Flush wrapper queue (pendingWrites) first
-      await syncNow();
-
       const result = await syncVisits();
       
       if (result.success) {
