@@ -3,6 +3,7 @@ import { useAuth } from '@/components/AuthContext';
 import { firebaseDashboardService, DashboardData, NeighborhoodRisk, RoutineVisitData, PriorityClassification } from '@/services/firebaseDashboardService';
 import geocodingService from '@/services/geocodingService';
 import logger from '@/lib/logger';
+import { useOnlineSync } from '@/hooks/useOnlineSync';
 import RiskMap from '@/components/RiskMap';
 import dynamic from 'next/dynamic';
 
@@ -199,6 +200,8 @@ export default function Dashboard() {
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [mapCenter, setMapCenter] = useState<[number, number]>([-25.442868, -49.226276]);
   const [dataError, setDataError] = useState<string | null>(null);
+
+  const { isOnline, pendingCount } = useOnlineSync();
 
   // Carregar coordenadas da cidade da organização
   useEffect(() => {
@@ -1029,6 +1032,17 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden">
+      {/* Offline banner */}
+      {!isOnline && (
+        <div className="flex items-center gap-2 bg-yellow-50 border-b border-yellow-200 px-4 py-2 text-yellow-800 text-sm">
+          <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728M15.536 8.464a5 5 0 010 7.072M12 12h.01M8.464 15.536a5 5 0 010-7.072M5.636 18.364a9 9 0 010-12.728" /></svg>
+          <span>
+            <strong>Offline</strong> — Exibindo dados em cache.
+            {pendingCount > 0 && ` ${pendingCount} alteraçõe${pendingCount === 1 ? '' : 's'} pendente${pendingCount === 1 ? '' : 's'} de sincronização.`}
+          </span>
+        </div>
+      )}
+
       {/* Header com ações */}
       <div className="p-4 md:p-0 pb-4 border-b">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">

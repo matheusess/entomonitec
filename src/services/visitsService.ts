@@ -14,6 +14,7 @@ import { db } from '@/lib/offlineDb';
 import logger from '@/lib/logger';
 
 class VisitsService {
+  private _syncInProgress = false;
 
   // Salvar visita localmente (offline) — IndexedDB via Dexie
   async saveVisitLocally(visit: VisitForm): Promise<void> {
@@ -220,6 +221,20 @@ class VisitsService {
 
   // Sincronizar visitas com o Firebase
   async syncVisits(): Promise<{ success: boolean; synced: number; errors: number; message?: string }> {
+    if (this._syncInProgress) {
+      logger.log('[visitsService] Sync already in progress, skipping');
+      return { success: true, synced: 0, errors: 0, message: 'Sincronização já em andamento' };
+    }
+
+    this._syncInProgress = true;
+    try {
+    return await this._doSyncVisits();
+    } finally {
+      this._syncInProgress = false;
+    }
+  }
+
+  private async _doSyncVisits(): Promise<{ success: boolean; synced: number; errors: number; message?: string }> {
     const queue = await this.getSyncQueue();
     let synced = 0;
     let errors = 0;
