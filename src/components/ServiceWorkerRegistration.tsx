@@ -17,8 +17,33 @@ export function ServiceWorkerRegistration() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    // In dev, remove old SW/caches to avoid stale chunk URLs (e.g. port 3001) breaking HMR.
+    if (process.env.NODE_ENV === "development" && "serviceWorker" in navigator) {
+      void (async () => {
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map((registration) => registration.unregister()));
+
+          if ("caches" in window) {
+            const cacheNames = await caches.keys();
+            const serwistCaches = cacheNames.filter(
+              (name) => name.includes("serwist") || name.includes("next") || name.includes("_next")
+            );
+            await Promise.all(serwistCaches.map((cacheName) => caches.delete(cacheName)));
+          }
+        } catch {
+          // Silent: this cleanup is best-effort and should never block app render in dev.
+        }
+      })();
+
+      return;
+    }
+
     if (
-      typeof window === "undefined" ||
       !("serviceWorker" in navigator) ||
       window.serwist === undefined
     ) {
