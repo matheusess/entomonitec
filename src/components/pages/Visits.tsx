@@ -43,7 +43,8 @@ import {
   RoutineVisitForm,
   LIRAAVisitForm,
   CreateRoutineVisitRequest,
-  CreateLIRAAVisitRequest
+  CreateLIRAAVisitRequest,
+  OvitrampasVisitForm
 } from '@/types/visits';
 import { useVisits } from '@/hooks/useVisits';
 import LocationStatus from '@/components/LocationStatus';
@@ -54,6 +55,7 @@ import { geocodingService } from '@/services/geocodingService';
 import { firebaseVisitsService } from '@/services/firebaseVisitsService';
 import { useOnlineSync } from '@/hooks/useOnlineSync';
 import logger from '@/lib/logger';
+import { parseVisitTimestamp } from '@/lib/utils';
 
 export default function Visits() {
   const { user } = useAuth();
@@ -63,7 +65,7 @@ export default function Visits() {
   const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<LocationData | null>(null);
-  const [selectedVisit, setSelectedVisit] = useState<RoutineVisitForm | LIRAAVisitForm | null>(null);
+  const [selectedVisit, setSelectedVisit] = useState<RoutineVisitForm | LIRAAVisitForm | OvitrampasVisitForm | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [visitPhotos, setVisitPhotos] = useState<string[]>([]);
@@ -101,6 +103,23 @@ export default function Visits() {
 
   const [liraaForm, setLIRAAForm] = useState<Partial<LIRAAVisitForm>>({
     type: 'liraa',
+    timestamp: new Date(),
+    neighborhood: '',
+    observations: '',
+    propertyType: 'residential',
+    inspected: true,
+    refused: false,
+    closed: false,
+    containers: { a1: 0, a2: 0, b: 0, c: 0, d1: 0, d2: 0, e: 0 },
+    positiveContainers: { a1: 0, a2: 0, b: 0, c: 0, d1: 0, d2: 0, e: 0 },
+    larvaeSpecies: [],
+    treatmentApplied: false,
+    eliminationAction: false
+  });
+
+  const [ovitrampasForm, setOvitrampasForm] = useState<Partial<OvitrampasVisitForm>>({
+    type: 'ovitrampas',
+
     timestamp: new Date(),
     neighborhood: '',
     observations: '',
@@ -639,6 +658,7 @@ export default function Visits() {
                     <RadioGroupItem value="ovitrampa" id="ovitrampa" />
                     <Label htmlFor="ovitrampa" className="cursor-pointer flex-1">
                       <div className="flex items-center space-x-3">
+                        {/*TODO -> alterar icone para representar Ovos */}
                         <Bug className="h-5 w-5 text-primary" />
                         <div>
                           <p className="font-medium">Ovitrampa</p>
@@ -729,12 +749,21 @@ export default function Visits() {
                 setForm={setRoutineForm}
                 controlMeasures={controlMeasures}
               />
-            ) : (
+            ) : visitType === 'liraa' ? (
               <LIRAAFormContent
                 form={liraaForm}
                 setForm={setLIRAAForm}
                 larvaeSpecies={larvaeSpecies}
               />
+            ) : (
+              <>
+                {/*TODO -> Adicionar formulário específico para ovitrampas */}
+                <OvitrampasFormContent
+                  form={ovitrampasForm}
+                  setForm={setOvitrampasForm}
+                  larvaeSpecies={[]}
+                />
+              </>
             )}
 
             {/* Photos */}
@@ -1267,6 +1296,214 @@ function LIRAAFormContent({
   );
 }
 
+// Ovitrampas Form Component
+function OvitrampasFormContent({
+  form,
+  setForm,
+  larvaeSpecies
+}: {
+  // form: Partial<LIRAAVisitForm>;
+  // setForm: React.Dispatch<React.SetStateAction<Partial<LIRAAVisitForm>>>;
+  // larvaeSpecies: string[];
+  form: Partial<OvitrampasVisitForm>;
+  setForm: React.Dispatch<React.SetStateAction<Partial<OvitrampasVisitForm>>>;
+  larvaeSpecies: string[];
+}) {
+  // const containerTypes = [
+  //   { key: 'a1', label: 'A1 – Depósitos de águas elevados (Caixas d\'água, tambores, etc.)' },
+  //   { key: 'a2', label: 'A2 – Depósitos de água a nível de solo (Caixas d\'água, tanques, cisternas, etc)' },
+  //   { key: 'b', label: 'B – Depósitos móveis (Vasos de planta, recipientes, fontes, etc)' },
+  //   { key: 'c', label: 'C – Depósitos fixos (Calhas, lajes, toldos, etc)' },
+  //   { key: 'd1', label: 'D1 – Passíveis de remoção – Pneus e materiais rodantes' },
+  //   { key: 'd2', label: 'D2 – Passíveis de remoção – Outros depósitos (garrafas, plásticos, lixo)' },
+  //   { key: 'e', label: 'E – Naturais (Plantas, buracos em rochas, etc)' }
+  // ];
+
+  return (
+    <>
+      {/* Property Information */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Building className="h-5 w-5" />
+            <span>Informações do Imóvel</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Tipo de imóvel</Label>
+            <Select
+              value={form.propertyType}
+              onValueChange={(value: any) => setForm(prev => ({ ...prev, propertyType: value }))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="residential">Residencial</SelectItem>
+                <SelectItem value="commercial">Comercial</SelectItem>
+                <SelectItem value="institutional">Institucional</SelectItem>
+                <SelectItem value="vacant">Terreno baldio</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="inspected"
+                checked={form.inspected || false}
+                onCheckedChange={(checked) => setForm(prev => ({ ...prev, inspected: checked as boolean }))}
+              />
+              <Label htmlFor="inspected">Inspecionado</Label>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="refused"
+                checked={form.refused || false}
+                onCheckedChange={(checked) => setForm(prev => ({ ...prev, refused: checked as boolean }))}
+              />
+              <Label htmlFor="refused">Recusado</Label>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="closed"
+                checked={form.closed || false}
+                onCheckedChange={(checked) => setForm(prev => ({ ...prev, closed: checked as boolean }))}
+              />
+              <Label htmlFor="closed">Fechado</Label>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Container Inspection */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Droplets className="h-5 w-5" />
+            <span>Inspeção de Recipientes</span>
+          </CardTitle>
+          <CardDescription>
+            Registre a quantidade de recipientes por categoria (conforme LIRAa/MS)
+          </CardDescription>
+        </CardHeader>
+        {/* <CardContent>
+          <div className="space-y-4">
+            {containerTypes.map(({ key, label }) => (
+              <div key={key} className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border rounded-lg">
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">{label}</Label>
+                  <div className="flex items-center space-x-2">
+                    <Label htmlFor={`${key}-total`} className="text-xs">Total:</Label>
+                    <Input
+                      id={`${key}-total`}
+                      type="number"
+                      min="0"
+                      value={form.containers![key as keyof typeof form.containers] || 0}
+                      onChange={(e) => setForm(prev => ({
+                        ...prev,
+                        containers: {
+                          ...prev.containers!,
+                          [key]: parseInt(e.target.value) || 0
+                        }
+                      }))}
+                      className="w-20"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm text-muted-foreground">Positivos para larvas</Label>
+                  <div className="flex items-center space-x-2">
+                    <Label htmlFor={`${key}-positive`} className="text-xs">Positivos:</Label>
+                    <Input
+                      id={`${key}-positive`}
+                      type="number"
+                      min="0"
+                      max={form.containers![key as keyof typeof form.containers] || 0}
+                      value={form.positiveContainers![key as keyof typeof form.positiveContainers] || 0}
+                      onChange={(e) => setForm(prev => ({
+                        ...prev,
+                        positiveContainers: {
+                          ...prev.positiveContainers!,
+                          [key]: parseInt(e.target.value) || 0
+                        }
+                      }))}
+                      className="w-20"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent> */}
+      </Card>
+
+      {/* Species and Actions */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Bug className="h-5 w-5" />
+            <span>Espécies e Ações Realizadas</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Espécies de larvas identificadas</Label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {larvaeSpecies.map(species => (
+                <div key={species} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={species}
+                    checked={form.larvaeSpecies!.includes(species) || false}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setForm(prev => ({
+                          ...prev,
+                          larvaeSpecies: [...(prev.larvaeSpecies || []), species]
+                        }));
+                      } else {
+                        setForm(prev => ({
+                          ...prev,
+                          larvaeSpecies: prev.larvaeSpecies?.filter(s => s !== species) || []
+                        }));
+                      }
+                    }}
+                  />
+                  <Label htmlFor={species} className="text-sm">{species}</Label>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="treatmentApplied"
+                checked={form.treatmentApplied || false}
+                onCheckedChange={(checked) => setForm(prev => ({ ...prev, treatmentApplied: checked as boolean }))}
+              />
+              <Label htmlFor="treatmentApplied">Tratamento aplicado</Label>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="eliminationAction"
+                checked={form.eliminationAction || false}
+                onCheckedChange={(checked) => setForm(prev => ({ ...prev, eliminationAction: checked as boolean }))}
+              />
+              <Label htmlFor="eliminationAction">Ação de eliminação</Label>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
 // Visit History Component
 function VisitHistory({
   visits,
@@ -1274,8 +1511,8 @@ function VisitHistory({
   onVisitUpdated,
   user
 }: {
-  visits: (RoutineVisitForm | LIRAAVisitForm)[];
-  onVisitClick: (visit: RoutineVisitForm | LIRAAVisitForm) => void;
+  visits: (RoutineVisitForm | LIRAAVisitForm | OvitrampasVisitForm)[];
+  onVisitClick: (visit: RoutineVisitForm | LIRAAVisitForm | OvitrampasVisitForm) => void;
   onVisitUpdated: () => void;
   user: any;
 }) {
@@ -1327,138 +1564,143 @@ function VisitHistory({
     );
   }
 
+
+
   return (
     <div className="grid gap-4">
-      {visits.map((visit) => (
-        <Card key={visit.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => onVisitClick(visit)}>
-          <CardContent className="p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div className="space-y-1">
-                <div className="flex items-center space-x-2">
-                  <h3 className="font-medium text-lg">{visit.neighborhood}</h3>
-                  {visit.type === 'routine' ? (
-                    <Badge className="bg-blue-500 hover:bg-blue-600 text-white border-0">
-                      <Home className="h-3 w-3 mr-1" />
-                      Rotina
-                    </Badge>
-                  ) : (
-                    <Badge className="bg-orange-500 hover:bg-orange-600 text-white border-0">
-                      <Bug className="h-3 w-3 mr-1" />
-                      LIRAa
-                    </Badge>
-                  )}
-                  {getSyncStatusBadge(visit.syncStatus, visit.syncError)}
-                </div>
-                <div className="flex items-center space-x-2 text-xs text-muted-foreground">
-                  <Eye className="h-3 w-3" />
-                  <span>Clique para ver detalhes</span>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {visit.location?.address || 'Localização não disponível'}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {format(visit.timestamp, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
-                </p>
-                {visit.syncError && (
+      {visits.map((visit) => {
+        const timestampDate = parseVisitTimestamp(visit.timestamp);
+        return (
+          <Card key={visit.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => onVisitClick(visit)}>
+            <CardContent className="p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div className="space-y-1">
                   <div className="flex items-center space-x-2">
-                    <p className="text-xs text-red-500">
-                      Erro: {visit.syncError}
-                    </p>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={async () => {
-                        const success = await visitsService.retrySyncVisit(visit.id);
-                        if (success) {
+                    <h3 className="font-medium text-lg">{visit.neighborhood}</h3>
+                    {visit.type === 'routine' ? (
+                      <Badge className="bg-blue-500 hover:bg-blue-600 text-white border-0">
+                        <Home className="h-3 w-3 mr-1" />
+                        Rotina
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-orange-500 hover:bg-orange-600 text-white border-0">
+                        <Bug className="h-3 w-3 mr-1" />
+                        LIRAa
+                      </Badge>
+                    )}
+                    {getSyncStatusBadge(visit.syncStatus, visit.syncError)}
+                  </div>
+                  <div className="flex items-center space-x-2 text-xs text-muted-foreground">
+                    <Eye className="h-3 w-3" />
+                    <span>Clique para ver detalhes</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {visit.location?.address || 'Localização não disponível'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {format(timestampDate, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                  </p>
+                  {visit.syncError && (
+                    <div className="flex items-center space-x-2">
+                      <p className="text-xs text-red-500">
+                        Erro: {visit.syncError}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          const success = await visitsService.retrySyncVisit(visit.id);
+                          if (success) {
+                            toast({
+                              title: "Visita sincronizada!",
+                              description: "A visita foi enviada com sucesso para o servidor.",
+                            });
+                            // Recarregar visitas
+                            onVisitUpdated();
+                          } else {
+                            toast({
+                              title: "Erro na sincronização",
+                              description: "Não foi possível sincronizar a visita. Tente novamente.",
+                              variant: "destructive"
+                            });
+                          }
+                        }}
+                        className="h-6 px-2 text-xs"
+                      >
+                        <Zap className="h-3 w-3 mr-1" />
+                        Tentar Novamente
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Botão de exclusão - só para Supervisores e Administradores */}
+                {user?.role && user.role !== 'agent' && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={async (e) => {
+                      e.stopPropagation(); // Evita abrir o modal de detalhes
+
+                      if (confirm(`Tem certeza que deseja excluir esta visita?\n\nBairro: ${visit.neighborhood}\nData: ${format(timestampDate, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}\n\nEsta ação não pode ser desfeita.`)) {
+                        try {
+                          await visitsService.deleteVisit(visit.id);
                           toast({
-                            title: "Visita sincronizada!",
-                            description: "A visita foi enviada com sucesso para o servidor.",
+                            title: "Visita excluída!",
+                            description: "A visita foi removida do sistema.",
                           });
-                          // Recarregar visitas
+                          // Recarregar a lista de visitas
                           onVisitUpdated();
-                        } else {
+                        } catch (error) {
                           toast({
-                            title: "Erro na sincronização",
-                            description: "Não foi possível sincronizar a visita. Tente novamente.",
+                            title: "Erro ao excluir visita",
+                            description: "Não foi possível excluir a visita. Tente novamente.",
                             variant: "destructive"
                           });
                         }
-                      }}
-                      className="h-6 px-2 text-xs"
-                    >
-                      <Zap className="h-3 w-3 mr-1" />
-                      Tentar Novamente
-                    </Button>
-                  </div>
+                      }
+                    }}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 )}
               </div>
 
-              {/* Botão de exclusão - só para Supervisores e Administradores */}
-              {user?.role && user.role !== 'agent' && (
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={async (e) => {
-                    e.stopPropagation(); // Evita abrir o modal de detalhes
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Agente:</span>
+                  <p className="font-medium">{visit.agentName}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Tipo:</span>
+                  <p className="font-medium">{visit.type === 'routine' ? 'Visita de Rotina' : 'LIRAa'}</p>
+                </div>
+                {visit.type === 'routine' && (
+                  <>
+                    <div>
+                      <span className="text-muted-foreground">Larvas:</span>
+                      <p className="font-medium">{visit.larvaeFound ? 'Sim' : 'Não'}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Risco:</span>
+                      <Badge className={"bg-info"}>
+                        Em análise
+                      </Badge>
+                    </div>
+                  </>
+                )}
+              </div>
 
-                    if (confirm(`Tem certeza que deseja excluir esta visita?\n\nBairro: ${visit.neighborhood}\nData: ${format(visit.timestamp, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}\n\nEsta ação não pode ser desfeita.`)) {
-                      try {
-                        await visitsService.deleteVisit(visit.id);
-                        toast({
-                          title: "Visita excluída!",
-                          description: "A visita foi removida do sistema.",
-                        });
-                        // Recarregar a lista de visitas
-                        onVisitUpdated();
-                      } catch (error) {
-                        toast({
-                          title: "Erro ao excluir visita",
-                          description: "Não foi possível excluir a visita. Tente novamente.",
-                          variant: "destructive"
-                        });
-                      }
-                    }
-                  }}
-                  className="h-8 w-8 p-0"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+              {visit.observations && (
+                <div className="mt-4 p-3 bg-muted rounded-lg">
+                  <p className="text-sm">{visit.observations}</p>
+                </div>
               )}
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">Agente:</span>
-                <p className="font-medium">{visit.agentName}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Tipo:</span>
-                <p className="font-medium">{visit.type === 'routine' ? 'Visita de Rotina' : 'LIRAa'}</p>
-              </div>
-              {visit.type === 'routine' && (
-                <>
-                  <div>
-                    <span className="text-muted-foreground">Larvas:</span>
-                    <p className="font-medium">{visit.larvaeFound ? 'Sim' : 'Não'}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Risco:</span>
-                    <Badge className={"bg-info"}>
-                      Em análise
-                    </Badge>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {visit.observations && (
-              <div className="mt-4 p-3 bg-muted rounded-lg">
-                <p className="text-sm">{visit.observations}</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ))}
+            </CardContent>
+          </Card>
+        )
+      })}
     </div>
   );
 }

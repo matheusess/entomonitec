@@ -154,6 +154,7 @@ export function useVisits() {
     total: visits.length,
     routine: visits.filter(v => v.type === 'routine').length,
     liraa: visits.filter(v => v.type === 'liraa').length,
+    ovitrampas: visits.filter(v => v.type === 'ovitrampas').length,
     pendingSync: visits.filter(v => v.syncStatus === 'pending').length,
   }), [visits]);
 

@@ -29,7 +29,7 @@ export interface BreedingSite {
 
 export interface VisitFormBase {
   id: string;
-  type: 'routine' | 'liraa';
+  type: 'routine' | 'liraa' | 'ovitrampas';
   timestamp: Date;
   location: LocationData | null;
   neighborhood: string;
@@ -98,8 +98,38 @@ export interface LIRAAVisitForm extends VisitFormBase {
   eliminationAction: boolean;
   liraaIndex?: number; // Índice calculado para o LIRAa
 }
+//TODO -> ajustar a interface para o tipo Ovitrampas, que tem campos diferentes do LIRAA, e criar um componente específico para esse tipo de visita (com os campos específicos)
+export interface OvitrampasVisitForm extends VisitFormBase {
+  type: 'ovitrampas';
+  propertyType: 'residential' | 'commercial' | 'institutional' | 'vacant';
+  inspected: boolean;
+  refused: boolean;
+  closed: boolean;
+  containers: {
+    a1: number; // Reservatórios de água
+    a2: number; // Depósitos móveis
+    b: number;  // Depósitos fixos
+    c: number;  // Passíveis de remoção
+    d1: number; // Pneus
+    d2: number; // Lixo
+    e: number;  // Naturais
+  };
+  positiveContainers: {
+    a1: number;
+    a2: number;
+    b: number;
+    c: number;
+    d1: number;
+    d2: number;
+    e: number;
+  };
+  larvaeSpecies: string[];
+  treatmentApplied: boolean;
+  eliminationAction: boolean;
+  liraaIndex?: number; // Índice calculado para o LIRAa
+}
 
-export type VisitForm = RoutineVisitForm | LIRAAVisitForm;
+export type VisitForm = RoutineVisitForm | LIRAAVisitForm | OvitrampasVisitForm;
 
 // Interfaces para criação de visitas
 export interface CreateRoutineVisitRequest {
