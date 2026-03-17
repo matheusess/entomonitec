@@ -1,25 +1,26 @@
-import { 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  doc, 
-  query, 
-  where, 
-  getDocs, 
-  orderBy, 
+import {
+  collection,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  query,
+  where,
+  getDocs,
+  orderBy,
   limit,
-  serverTimestamp 
+  serverTimestamp
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 import { firebasePhotoService } from './firebasePhotoService';
 import { withOfflineRead, withOfflineWrite, isOnline } from '@/lib/firebaseWrapper';
 import logger from '@/lib/logger';
-import { 
-  VisitForm, 
-  RoutineVisitForm, 
-  LIRAAVisitForm, 
-  CreateRoutineVisitRequest, 
+import { parseVisitTimestamp } from '@/lib/utils';
+import {
+  VisitForm,
+  RoutineVisitForm,
+  LIRAAVisitForm,
+  CreateRoutineVisitRequest,
   CreateLIRAAVisitRequest,
   UpdateVisitRequest
 } from '@/types/visits';
@@ -27,6 +28,22 @@ import { IUser } from '@/types/organization';
 
 class FirebaseVisitsService {
   private readonly COLLECTION_NAME = 'visits';
+
+  private normalizeVisitDocument(docId: string, data: Record<string, any>): VisitForm {
+    return {
+      ...data,
+      id: docId,
+      timestamp: parseVisitTimestamp(data.timestamp),
+      createdAt: parseVisitTimestamp(data.createdAt),
+      updatedAt: parseVisitTimestamp(data.updatedAt),
+      location: data.location
+        ? {
+          ...data.location,
+          timestamp: parseVisitTimestamp(data.location.timestamp),
+        }
+        : null,
+    } as VisitForm;
+  }
 
   // Criar visita no Firebase
   async createVisit(visit: VisitForm): Promise<{ id: string; photos: string[] }> {
@@ -126,12 +143,7 @@ class FirebaseVisitsService {
         const visits: VisitForm[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          visits.push({
-            ...data,
-            id: doc.id,
-            createdAt: data.createdAt?.toDate() || new Date(),
-            updatedAt: data.updatedAt?.toDate() || new Date()
-          } as VisitForm);
+          visits.push(this.normalizeVisitDocument(doc.id, data));
         });
         logger.log(`✅ ${visits.length} visitas carregadas do Firebase`);
         return visits;
@@ -155,12 +167,7 @@ class FirebaseVisitsService {
         const visits: VisitForm[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          visits.push({
-            ...data,
-            id: doc.id,
-            createdAt: data.createdAt?.toDate() || new Date(),
-            updatedAt: data.updatedAt?.toDate() || new Date()
-          } as VisitForm);
+          visits.push(this.normalizeVisitDocument(doc.id, data));
         });
         logger.log(`✅ ${visits.length} visitas do agente carregadas do Firebase`);
         return visits;
@@ -190,12 +197,7 @@ class FirebaseVisitsService {
         const visits: VisitForm[] = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          visits.push({
-            ...data,
-            id: doc.id,
-            createdAt: data.createdAt?.toDate() || new Date(),
-            updatedAt: data.updatedAt?.toDate() || new Date()
-          } as VisitForm);
+          visits.push(this.normalizeVisitDocument(doc.id, data));
         });
         logger.log(`✅ ${visits.length} visitas do período carregadas do Firebase`);
         return visits;
@@ -228,18 +230,18 @@ class FirebaseVisitsService {
 
         const mimeType = matches[1];
         const base64Data = matches[2];
-        
+
         // Converter base64 para blob
         const byteCharacters = atob(base64Data);
         const byteNumbers = new Array(byteCharacters.length);
-        
+
         for (let i = 0; i < byteCharacters.length; i++) {
           byteNumbers[i] = byteCharacters.charCodeAt(i);
         }
-        
+
         const byteArray = new Uint8Array(byteNumbers);
         const blob = new Blob([byteArray], { type: mimeType });
-        
+
         // Criar File object
         const fileName = `visita-foto-${index + 1}-${Date.now()}.${mimeType.split('/')[1]}`;
         return new File([blob], fileName, { type: mimeType });
