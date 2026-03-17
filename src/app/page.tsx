@@ -7,7 +7,7 @@ import { useAuth } from '@/components/AuthContext';
 export default function HomePage() {
   const { user, isLoading, getDefaultRoute } = useAuth();
   const router = useRouter();
-
+  console.log('teste')
   useEffect(() => {
     if (!isLoading) {
       if (user) {

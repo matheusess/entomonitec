@@ -1,5 +1,6 @@
 import { UserService, IUserWithId } from './userService';
 import { firebaseVisitsService } from './firebaseVisitsService';
+import { withOfflineRead } from '@/lib/firebaseWrapper';
 import { VisitForm } from '@/types/visits';
 import { subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import logger from '@/lib/logger';
@@ -48,6 +49,18 @@ export class OperationalService {
    * Busca dados operacionais completos para uma organização
    */
   async getOperationalData(organizationId: string, period: 'week' | 'month' | 'quarter' = 'week'): Promise<{
+    agents: AgentPerformance[];
+    teams: TeamSummary[];
+    visitTrends: VisitTrend[];
+  }> {
+    return withOfflineRead(
+      `operational_${organizationId}_${period}`,
+      'visits',
+      () => this._fetchOperationalData(organizationId, period),
+    );
+  }
+
+  private async _fetchOperationalData(organizationId: string, period: 'week' | 'month' | 'quarter' = 'week'): Promise<{
     agents: AgentPerformance[];
     teams: TeamSummary[];
     visitTrends: VisitTrend[];

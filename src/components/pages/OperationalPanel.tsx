@@ -39,6 +39,7 @@ import {
 import { format, subDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { operationalService, AgentPerformance, TeamSummary, VisitTrend } from '@/services/operationalService';
+import { useOnlineSync } from '@/hooks/useOnlineSync';
 import logger from '@/lib/logger';
 
 // Interfaces movidas para operationalService.ts
@@ -53,6 +54,8 @@ export default function OperationalPanel() {
   const [visitTrends, setVisitTrends] = useState<VisitTrend[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const { isOnline, pendingCount } = useOnlineSync();
 
   useEffect(() => {
     const loadOperationalData = async () => {
@@ -190,6 +193,17 @@ export default function OperationalPanel() {
 
   return (
     <div className="p-4 md:p-6 space-y-6">
+      {/* Offline banner */}
+      {!isOnline && (
+        <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-2 text-yellow-800 text-sm">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <span>
+            <strong>Offline</strong> — Exibindo dados em cache.
+            {pendingCount > 0 && ` ${pendingCount} alteraçõe${pendingCount === 1 ? '' : 's'} pendente${pendingCount === 1 ? '' : 's'} de sincronização.`}
+          </span>
+        </div>
+      )}
+
       <div className="space-y-2">
         <h1 className="text-3xl font-bold text-foreground flex items-center space-x-2">
           <Users className="h-8 w-8 text-primary" />

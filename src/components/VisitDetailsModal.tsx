@@ -1,14 +1,14 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { 
-  X, 
-  MapPin, 
-  Clock, 
-  User, 
-  Home, 
-  Building, 
-  Bug, 
+import {
+  X,
+  MapPin,
+  Clock,
+  User,
+  Home,
+  Building,
+  Bug,
   Droplets,
   CheckCircle,
   AlertCircle,
@@ -20,6 +20,7 @@ import {
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { RoutineVisitForm, LIRAAVisitForm } from '@/types/visits';
+import { parseVisitTimestamp } from '@/lib/utils';
 
 interface VisitDetailsModalProps {
   isOpen: boolean;
@@ -29,6 +30,8 @@ interface VisitDetailsModalProps {
 
 export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetailsModalProps) {
   if (!isOpen || !visit) return null;
+
+  const visitDate = parseVisitTimestamp(visit.timestamp);
 
   // Função para renderizar status de sincronização
   const getSyncStatusBadge = (syncStatus: string, syncError?: string) => {
@@ -67,10 +70,10 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
 
   // Função para renderizar criadouros encontrados
   const renderBreedingSites = (breedingSites: any) => {
-    const sites = Object.entries(breedingSites).filter(([key, value]) => 
+    const sites = Object.entries(breedingSites).filter(([key, value]) =>
       key !== 'others' && value === true
     );
-    
+
     if (sites.length === 0 && !breedingSites.others) {
       return <p className="text-muted-foreground">Nenhum criadouro encontrado</p>;
     }
@@ -110,9 +113,9 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
         {containerTypes.map(({ key, label }) => {
           const total = containers[key] || 0;
           const positive = positiveContainers[key] || 0;
-          
+
           if (total === 0) return null;
-          
+
           return (
             <div key={key} className="flex justify-between items-center p-3 bg-muted rounded-lg">
               <span className="text-sm font-medium">{label}</span>
@@ -164,7 +167,7 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
             <X className="h-4 w-4" />
           </Button>
         </CardHeader>
-        
+
         <CardContent className="space-y-6 overflow-y-auto max-h-[calc(90vh-120px)]">
           {/* Informações Básicas */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -209,7 +212,7 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Data e Horário</p>
                   <p className="font-medium">
-                    {format(visit.timestamp, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                    {format(visitDate, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
                   </p>
                 </div>
                 <div>
@@ -219,8 +222,8 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Status</p>
                   <Badge variant={visit.status === 'completed' ? 'default' : 'secondary'}>
-                    {visit.status === 'completed' ? 'Concluída' : 
-                     visit.status === 'refused' ? 'Recusada' : 'Fechada'}
+                    {visit.status === 'completed' ? 'Concluída' :
+                      visit.status === 'refused' ? 'Recusada' : 'Fechada'}
                   </Badge>
                 </div>
               </CardContent>
@@ -241,7 +244,7 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
                   <h4 className="font-medium mb-3">Criadouros Encontrados</h4>
                   {renderBreedingSites(visit.breedingSites)}
                 </div>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <h4 className="font-medium mb-3">Presença de Larvas</h4>
@@ -259,7 +262,7 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
                       )}
                     </div>
                   </div>
-                  
+
                   <div>
                     <h4 className="font-medium mb-3">Presença de Pupas</h4>
                     <div className="flex items-center space-x-2">
@@ -295,18 +298,18 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
                 {visit.calculatedRiskLevel && (
                   <div>
                     <h4 className="font-medium mb-3">Nível de Risco Calculado</h4>
-                    <Badge 
-                      variant="outline" 
+                    <Badge
+                      variant="outline"
                       className={
                         visit.calculatedRiskLevel === 'low' ? 'bg-green-100 text-green-800' :
-                        visit.calculatedRiskLevel === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                        visit.calculatedRiskLevel === 'high' ? 'bg-orange-100 text-orange-800' :
-                        'bg-red-100 text-red-800'
+                          visit.calculatedRiskLevel === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                            visit.calculatedRiskLevel === 'high' ? 'bg-orange-100 text-orange-800' :
+                              'bg-red-100 text-red-800'
                       }
                     >
                       {visit.calculatedRiskLevel === 'low' ? 'Baixo' :
-                       visit.calculatedRiskLevel === 'medium' ? 'Médio' :
-                       visit.calculatedRiskLevel === 'high' ? 'Alto' : 'Crítico'}
+                        visit.calculatedRiskLevel === 'medium' ? 'Médio' :
+                          visit.calculatedRiskLevel === 'high' ? 'Alto' : 'Crítico'}
                     </Badge>
                   </div>
                 )}
@@ -326,11 +329,11 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
                     <h4 className="font-medium mb-3">Tipo de Imóvel</h4>
                     <Badge variant="outline">
                       {visit.propertyType === 'residential' ? 'Residencial' :
-                       visit.propertyType === 'commercial' ? 'Comercial' :
-                       visit.propertyType === 'institutional' ? 'Institucional' : 'Terreno Baldio'}
+                        visit.propertyType === 'commercial' ? 'Comercial' :
+                          visit.propertyType === 'institutional' ? 'Institucional' : 'Terreno Baldio'}
                     </Badge>
                   </div>
-                  
+
                   <div>
                     <h4 className="font-medium mb-3">Status da Inspeção</h4>
                     <div className="space-y-2">
@@ -391,7 +394,7 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
                       )}
                     </div>
                   </div>
-                  
+
                   <div>
                     <h4 className="font-medium mb-3">Ação de Eliminação</h4>
                     <div className="flex items-center space-x-2">
@@ -413,12 +416,12 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
                 {visit.liraaIndex !== undefined && (
                   <div>
                     <h4 className="font-medium mb-3">Índice LIRAa</h4>
-                    <Badge 
-                      variant="outline" 
+                    <Badge
+                      variant="outline"
                       className={
                         visit.liraaIndex < 1 ? 'bg-green-100 text-green-800' :
-                        visit.liraaIndex < 3.9 ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-red-100 text-red-800'
+                          visit.liraaIndex < 3.9 ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-red-100 text-red-800'
                       }
                     >
                       {visit.liraaIndex.toFixed(2)}%
