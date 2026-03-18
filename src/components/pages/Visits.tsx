@@ -1550,6 +1550,11 @@ function VisitHistory({
         );
     }
   };
+
+  const formatVisitDate = (timestamp: unknown) => {
+    return format(parseVisitTimestamp(timestamp), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
+  };
+
   if (visits.length === 0) {
     return (
       <Card>
@@ -1598,7 +1603,7 @@ function VisitHistory({
                     {visit.location?.address || 'Localização não disponível'}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {format(timestampDate, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                    {formatVisitDate(timestampDate)}
                   </p>
                   {visit.syncError && (
                     <div className="flex items-center space-x-2">
@@ -1642,7 +1647,7 @@ function VisitHistory({
                     onClick={async (e) => {
                       e.stopPropagation(); // Evita abrir o modal de detalhes
 
-                      if (confirm(`Tem certeza que deseja excluir esta visita?\n\nBairro: ${visit.neighborhood}\nData: ${format(timestampDate, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}\n\nEsta ação não pode ser desfeita.`)) {
+                      if (confirm(`Tem certeza que deseja excluir esta visita?\n\nBairro: ${visit.neighborhood}\nData: ${formatVisitDate(timestampDate)}\n\nEsta ação não pode ser desfeita.`)) {
                         try {
                           await visitsService.deleteVisit(visit.id);
                           toast({

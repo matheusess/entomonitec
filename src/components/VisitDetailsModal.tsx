@@ -20,6 +20,7 @@ import {
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { RoutineVisitForm, LIRAAVisitForm, OvitrampasVisitForm } from '@/types/visits';
+import { parseVisitTimestamp } from '@/lib/utils';
 
 interface VisitDetailsModalProps {
   isOpen: boolean;
@@ -29,6 +30,8 @@ interface VisitDetailsModalProps {
 
 export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetailsModalProps) {
   if (!isOpen || !visit) return null;
+
+  const visitDate = parseVisitTimestamp(visit.timestamp);
 
   // Função para renderizar status de sincronização
   const getSyncStatusBadge = (syncStatus: string, syncError?: string) => {
@@ -209,7 +212,7 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Data e Horário</p>
                   <p className="font-medium">
-                    {format(visit.timestamp, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                    {format(visitDate, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
                   </p>
                 </div>
                 <div>

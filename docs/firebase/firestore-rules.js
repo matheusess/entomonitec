@@ -228,6 +228,33 @@ service cloud.firestore {
     }
 
     // ===========================================
+    // OVITRAPS - Isolamento por organização
+    // ===========================================
+    match /ovitraps/{ovitrapId} {
+      // Usuários podem ler ovitraps da própria organização
+      allow read: if isAuthenticated() && 
+                     isSameOrganization(resource.data.organizationId);
+      
+      // Super admins podem ler qualquer ovitrap
+      allow read: if isSuperAdmin();
+      
+      // Usuários com permissão podem criar ovitraps
+      allow create: if isAuthenticated() && 
+                       hasPermission('ovitraps:create') &&
+                       isSameOrganization(request.resource.data.organizationId);
+      
+      // Admins podem atualizar ovitraps da própria organização
+      allow update: if isAuthenticated() && 
+                       hasPermission('ovitraps:update') &&
+                       isSameOrganization(resource.data.organizationId);
+      
+      // Apenas admins podem deletar ovitraps
+      allow delete: if isAuthenticated() && 
+                       hasPermission('ovitraps:delete') &&
+                       isSameOrganization(resource.data.organizationId);
+    }
+
+    // ===========================================
     // STORAGE RULES
     // ===========================================
     // Obs: Storage rules ficam em um arquivo separado (storage.rules)
