@@ -56,6 +56,9 @@ import { firebaseVisitsService } from '@/services/firebaseVisitsService';
 import { useOnlineSync } from '@/hooks/useOnlineSync';
 import logger from '@/lib/logger';
 import { parseVisitTimestamp } from '@/lib/utils';
+import { ovitrapService } from '@/services/ovitrapService';
+import { IOvitrap } from '@/types/ovitrap';
+import { UserService, IUserWithId } from '@/services/userService';
 
 export default function Visits() {
   const { user } = useAuth();
@@ -70,6 +73,11 @@ export default function Visits() {
   const [connectionStatus, setConnectionStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [visitPhotos, setVisitPhotos] = useState<string[]>([]);
   const [uploadedPhotoUrls, setUploadedPhotoUrls] = useState<string[]>([]);
+  const [ovitraps, setOvitraps] = useState<IOvitrap[]>([]);
+  const [isSavingOvitrap, setIsSavingOvitrap] = useState(false);
+  const [agents, setAgents] = useState<IUserWithId[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState('');
+  const [isLoadingAgents, setIsLoadingAgents] = useState(false);
 
   // Hook para gerenciar visitas
   const { visits: savedVisits, syncVisits, getStats, loadVisits } = useVisits();
@@ -119,17 +127,19 @@ export default function Visits() {
 
   const [ovitrampasForm, setOvitrampasForm] = useState<Partial<OvitrampasVisitForm>>({
     type: 'ovitrampas',
-
     timestamp: new Date(),
+    dataVisita: new Date(),
     neighborhood: '',
     observations: '',
     propertyType: 'residential',
     inspected: true,
     refused: false,
     closed: false,
-    containers: { a1: 0, a2: 0, b: 0, c: 0, d1: 0, d2: 0, e: 0 },
-    positiveContainers: { a1: 0, a2: 0, b: 0, c: 0, d1: 0, d2: 0, e: 0 },
-    larvaeSpecies: [],
+    // containers: { a1: 0, a2: 0, b: 0, c: 0, d1: 0, d2: 0, e: 0 },
+    // positiveContainers: { a1: 0, a2: 0, b: 0, c: 0, d1: 0, d2: 0, e: 0 },
+    larvaeFound: false,
+    manutencaoRealizada: false,
+    // larvaeSpecies: [],
     treatmentApplied: false,
     eliminationAction: false
   });
@@ -319,6 +329,99 @@ export default function Visits() {
 
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    const loadOvitraps = async () => {
+      if (!user?.organizationId) {
+        setOvitraps([]);
+        return;
+      }
+
+      try {
+        const items = await ovitrapService.getOvitraps(user.organizationId);
+        setOvitraps(items.filter(item => item.isActive));
+      } catch (error) {
+        logger.error('Erro ao carregar identificações de ovitrampa:', error);
+      }
+    };
+
+    loadOvitraps();
+  }, [user?.organizationId]);
+
+  useEffect(() => {
+    const loadAgents = async () => {
+      if (!user?.organizationId) {
+        setAgents([]);
+        setSelectedAgentId('');
+        return;
+      }
+
+      setIsLoadingAgents(true);
+      try {
+        const users = await UserService.listUsersByOrganization(user.organizationId);
+        const activeAgents = users.filter((item) => item.role === 'agent' && item.isActive);
+        setAgents(activeAgents);
+
+        if (activeAgents.some((item) => item.id === user.id)) {
+          setSelectedAgentId(user.id);
+        } else if (activeAgents.length > 0) {
+          setSelectedAgentId(activeAgents[0].id);
+        } else {
+          setSelectedAgentId('');
+        }
+      } catch (error) {
+        logger.error('Erro ao carregar agentes da ovitrampa:', error);
+        setAgents([]);
+      } finally {
+        setIsLoadingAgents(false);
+      }
+    };
+
+    loadAgents();
+  }, [user?.organizationId, user?.id]);
+
+  const handleCreateOvitrap = async (payload: { nome: string; codigo: string; endereco: string }) => {
+    if (!user?.organizationId || !user?.id) {
+      toast({
+        title: 'Não foi possível salvar a identificação',
+        description: 'Usuário sem organização vinculada.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSavingOvitrap(true);
+    try {
+      const created = await ovitrapService.createOvitrap({
+        ...payload,
+        organizationId: user.organizationId,
+        createdBy: user.id,
+      });
+
+      setOvitraps(prev => [created, ...prev]);
+      setOvitrampasForm(prev => ({
+        ...prev,
+        ovitrapId: created.id,
+        ovitrapNome: created.nome || payload.nome,
+        ovitrapCodigo: created.codigo || payload.codigo,
+        ovitrapEndereco: created.endereco || payload.endereco,
+      }));
+
+      toast({
+        title: 'Identificação salva',
+        description: 'A nova identificação da ovitrampa foi cadastrada com sucesso.',
+      });
+    } catch (error) {
+      logger.error('Erro ao salvar identificação de ovitrampa:', error);
+      toast({
+        title: 'Erro ao salvar identificação',
+        description: 'Tente novamente em alguns instantes.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSavingOvitrap(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -761,7 +864,16 @@ export default function Visits() {
                 <OvitrampasFormContent
                   form={ovitrampasForm}
                   setForm={setOvitrampasForm}
-                  larvaeSpecies={[]}
+                  larvaeSpecies={[
+
+                  ]}
+                  ovitraps={ovitraps}
+                  onCreateOvitrap={handleCreateOvitrap}
+                  isSavingOvitrap={isSavingOvitrap}
+                  agents={agents}
+                  selectedAgentId={selectedAgentId}
+                  onSelectedAgentChange={setSelectedAgentId}
+                  isLoadingAgents={isLoadingAgents}
                 />
               </>
             )}
@@ -1300,7 +1412,14 @@ function LIRAAFormContent({
 function OvitrampasFormContent({
   form,
   setForm,
-  larvaeSpecies
+  larvaeSpecies,
+  ovitraps,
+  onCreateOvitrap,
+  isSavingOvitrap,
+  agents,
+  selectedAgentId,
+  onSelectedAgentChange,
+  isLoadingAgents,
 }: {
   // form: Partial<LIRAAVisitForm>;
   // setForm: React.Dispatch<React.SetStateAction<Partial<LIRAAVisitForm>>>;
@@ -1308,7 +1427,83 @@ function OvitrampasFormContent({
   form: Partial<OvitrampasVisitForm>;
   setForm: React.Dispatch<React.SetStateAction<Partial<OvitrampasVisitForm>>>;
   larvaeSpecies: string[];
+  ovitraps: IOvitrap[];
+  onCreateOvitrap: (payload: { nome: string; codigo: string; endereco: string }) => Promise<void>;
+  isSavingOvitrap: boolean;
+  agents: IUserWithId[];
+  selectedAgentId: string;
+  onSelectedAgentChange: (value: string) => void;
+  isLoadingAgents: boolean;
 }) {
+  const ADD_NEW_OVITRAP = '__add_new_ovitrap__';
+  const [showCreateIdentificationForm, setShowCreateIdentificationForm] = useState(false);
+  const [newIdentification, setNewIdentification] = useState({
+    nome: '',
+    codigo: '',
+    endereco: '',
+  });
+
+  const handleSelectIdentification = (value: string) => {
+    if (value === ADD_NEW_OVITRAP) {
+      setShowCreateIdentificationForm(true);
+      return;
+    }
+
+    const selected = ovitraps.find(item => item.id === value);
+    if (!selected) {
+      return;
+    }
+
+    setShowCreateIdentificationForm(false);
+    setForm(prev => ({
+      ...prev,
+      ovitrapId: selected.id,
+      ovitrapNome: selected.nome || '',
+      ovitrapCodigo: selected.codigo || '',
+      ovitrapEndereco: selected.endereco || '',
+    }));
+  };
+
+  const handleSaveNewIdentification = async () => {
+    const nome = newIdentification.nome.trim();
+    const codigo = newIdentification.codigo.trim();
+    const endereco = newIdentification.endereco.trim();
+
+    if (!nome || !codigo || !endereco) {
+      toast({
+        title: 'Preencha todos os campos',
+        description: 'Nome, código e endereço são obrigatórios.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    await onCreateOvitrap({ nome, codigo, endereco });
+    setShowCreateIdentificationForm(false);
+    setNewIdentification({ nome: '', codigo: '', endereco: '' });
+  };
+
+  const selectedIdentificationLabel =
+    form.ovitrapNome || form.ovitrapCodigo || form.ovitrapEndereco
+      ? `${form.ovitrapNome || 'Sem nome'} • ${form.ovitrapCodigo || 'Sem código'} • ${form.ovitrapEndereco || 'Sem endereço'}`
+      : undefined;
+
+  const toDateInputValue = (date?: Date) => {
+    const value = date || new Date();
+    const pad = (num: number) => String(num).padStart(2, '0');
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+  };
+
+  const handleVisitDateChange = (value: string) => {
+    const [year, month, day] = value.split('-').map(Number);
+    if (!year || !month || !day) return;
+
+    setForm((prev) => ({
+      ...prev,
+      dataVisita: new Date(year, month - 1, day),
+    }));
+  };
+
   // const containerTypes = [
   //   { key: 'a1', label: 'A1 – Depósitos de águas elevados (Caixas d\'água, tambores, etc.)' },
   //   { key: 'a2', label: 'A2 – Depósitos de água a nível de solo (Caixas d\'água, tanques, cisternas, etc)' },
@@ -1326,178 +1521,257 @@ function OvitrampasFormContent({
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Building className="h-5 w-5" />
-            <span>Informações do Imóvel</span>
+            <span>Identificação da Ovitrampa</span>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label>Tipo de imóvel</Label>
+            <Label>Identificação</Label>
             <Select
-              value={form.propertyType}
-              onValueChange={(value: any) => setForm(prev => ({ ...prev, propertyType: value }))}
+              value={showCreateIdentificationForm ? ADD_NEW_OVITRAP : (form.ovitrapId || undefined)}
+              onValueChange={handleSelectIdentification}
             >
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder="Selecione por nome, código ou endereço">
+                  {selectedIdentificationLabel}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="residential">Residencial</SelectItem>
-                <SelectItem value="commercial">Comercial</SelectItem>
-                <SelectItem value="institutional">Institucional</SelectItem>
-                <SelectItem value="vacant">Terreno baldio</SelectItem>
+                {ovitraps.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.nome || 'Sem nome'} • {item.codigo || 'Sem código'} • {item.endereco || 'Sem endereço'}
+                  </SelectItem>
+                ))}
+                <SelectItem value={ADD_NEW_OVITRAP}>Adicionar um novo</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="inspected"
-                checked={form.inspected || false}
-                onCheckedChange={(checked) => setForm(prev => ({ ...prev, inspected: checked as boolean }))}
-              />
-              <Label htmlFor="inspected">Inspecionado</Label>
-            </div>
+          {showCreateIdentificationForm && (
+            <div className="space-y-3 rounded-lg border p-4 bg-muted/30">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="new-ovitrap-nome">Nome</Label>
+                  <Input
+                    id="new-ovitrap-nome"
+                    value={newIdentification.nome}
+                    onChange={(e) => setNewIdentification(prev => ({ ...prev, nome: e.target.value }))}
+                    placeholder="Ex.: Escola Municipal A"
+                  />
+                </div>
 
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="refused"
-                checked={form.refused || false}
-                onCheckedChange={(checked) => setForm(prev => ({ ...prev, refused: checked as boolean }))}
-              />
-              <Label htmlFor="refused">Recusado</Label>
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-ovitrap-codigo">Código</Label>
+                  <Input
+                    id="new-ovitrap-codigo"
+                    value={newIdentification.codigo}
+                    onChange={(e) => setNewIdentification(prev => ({ ...prev, codigo: e.target.value }))}
+                    placeholder="Ex.: OVT-001"
+                  />
+                </div>
 
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="closed"
-                checked={form.closed || false}
-                onCheckedChange={(checked) => setForm(prev => ({ ...prev, closed: checked as boolean }))}
+                <div className="space-y-2">
+                  <Label htmlFor="new-ovitrap-endereco">Endereço</Label>
+                  <Input
+                    id="new-ovitrap-endereco"
+                    value={newIdentification.endereco}
+                    onChange={(e) => setNewIdentification(prev => ({ ...prev, endereco: e.target.value }))}
+                    placeholder="Ex.: Rua das Flores, 123"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  onClick={handleSaveNewIdentification}
+                  disabled={isSavingOvitrap}
+                >
+                  {isSavingOvitrap ? 'Salvando...' : 'Salvar nova identificação'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {(form.ovitrapNome || form.ovitrapCodigo || form.ovitrapEndereco) && !showCreateIdentificationForm && (
+            <div className="rounded-lg border p-3 bg-muted/30 text-sm">
+              <p><strong>Nome:</strong> {form.ovitrapNome || 'Não informado'}</p>
+              <p><strong>Código:</strong> {form.ovitrapCodigo || 'Não informado'}</p>
+              <p><strong>Endereço:</strong> {form.ovitrapEndereco || 'Não informado'}</p>
+            </div>
+          )}
+
+        </CardContent>
+      </Card>
+
+      {/* Container Situation Ovitrampa */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Droplets className="h-5 w-5" />
+            <span>Situação da ovitrampa</span>
+          </CardTitle>
+          <CardDescription>
+            Selecione o status atual da ovitrampa durante a visita
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RadioGroup
+            value={form.refused ? 'refused' : form.closed ? 'closed' : 'inspected'}
+            onValueChange={(value) => {
+              setForm((prev) => ({
+                ...prev,
+                inspected: value === 'inspected',
+                refused: value === 'refused',
+                closed: value === 'closed',
+              }));
+            }}
+          >
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="flex items-center space-x-2 p-3 border rounded-lg">
+                <RadioGroupItem value="inspected" id="ovitrap-status-inspected" />
+                <Label htmlFor="ovitrap-status-inspected" className="cursor-pointer">Inspecionada</Label>
+              </div>
+
+              <div className="flex items-center space-x-2 p-3 border rounded-lg">
+                <RadioGroupItem value="refused" id="ovitrap-status-refused" />
+                <Label htmlFor="ovitrap-status-refused" className="cursor-pointer">Recusada</Label>
+              </div>
+
+              <div className="flex items-center space-x-2 p-3 border rounded-lg">
+                <RadioGroupItem value="closed" id="ovitrap-status-closed" />
+                <Label htmlFor="ovitrap-status-closed" className="cursor-pointer">Fechada</Label>
+              </div>
+            </div>
+          </RadioGroup>
+        </CardContent>
+      </Card>
+
+      {/* Larvae Presence */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Droplets className="h-5 w-5" />
+            <span>Presença de larvas</span>
+          </CardTitle>
+          <CardDescription>
+            Identifique se há presença de larvas na ovitrampa
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RadioGroup
+            value={form.larvaeFound ? 'sim' : 'nao'}
+            onValueChange={(value) => {
+              setForm((prev) => ({
+                ...prev,
+                larvaeFound: value === 'sim',
+              }));
+            }}
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="flex items-center space-x-2 p-3 border rounded-lg">
+                <RadioGroupItem value="sim" id="ovitrap-larvae-yes" />
+                <Label htmlFor="ovitrap-larvae-yes" className="cursor-pointer">Sim</Label>
+              </div>
+
+              <div className="flex items-center space-x-2 p-3 border rounded-lg">
+                <RadioGroupItem value="nao" id="ovitrap-larvae-no" />
+                <Label htmlFor="ovitrap-larvae-no" className="cursor-pointer">Não</Label>
+              </div>
+            </div>
+          </RadioGroup>
+        </CardContent>
+      </Card>
+
+      {/* Maintenance Performed */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Droplets className="h-5 w-5" />
+            <span>Manutenção realizada</span>
+          </CardTitle>
+          <CardDescription>
+            Informe se a manutenção da ovitrampa foi realizada nesta visita
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RadioGroup
+            value={form.manutencaoRealizada ? 'sim' : 'nao'}
+            onValueChange={(value) => {
+              setForm((prev) => ({
+                ...prev,
+                manutencaoRealizada: value === 'sim',
+              }));
+            }}
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="flex items-center space-x-2 p-3 border rounded-lg">
+                <RadioGroupItem value="sim" id="ovitrap-maintenance-yes" />
+                <Label htmlFor="ovitrap-maintenance-yes" className="cursor-pointer">Sim</Label>
+              </div>
+
+              <div className="flex items-center space-x-2 p-3 border rounded-lg">
+                <RadioGroupItem value="nao" id="ovitrap-maintenance-no" />
+                <Label htmlFor="ovitrap-maintenance-no" className="cursor-pointer">Não</Label>
+              </div>
+            </div>
+          </RadioGroup>
+        </CardContent>
+      </Card>
+
+      {/* Visit Date */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <Droplets className="h-5 w-5" />
+            <span>Data da visita</span>
+          </CardTitle>
+          <CardDescription>
+            Informe a data da visita da ovitrampa
+          </CardDescription>
+        </CardHeader>
+        <CardContent >
+          <div className="space-y-2 max-w-sm">
+            <Label htmlFor="ovitrampa-data-visita">Data</Label>
+            <div className='justify-center items-center flex'>
+              <Input
+                className='items-center justify-center'
+                id="ovitrampa-data-visita"
+                type="date"
+                value={toDateInputValue(form.dataVisita)}
+                onChange={(e) => handleVisitDateChange(e.target.value)}
               />
-              <Label htmlFor="closed">Fechado</Label>
+
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Container Inspection */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Droplets className="h-5 w-5" />
-            <span>Inspeção de Recipientes</span>
-          </CardTitle>
+          <CardTitle>Agente Responsável</CardTitle>
           <CardDescription>
-            Registre a quantidade de recipientes por categoria (conforme LIRAa/MS)
+            Selecione o agente que está realizando esta visita
           </CardDescription>
         </CardHeader>
-        {/* <CardContent>
-          <div className="space-y-4">
-            {containerTypes.map(({ key, label }) => (
-              <div key={key} className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border rounded-lg">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">{label}</Label>
-                  <div className="flex items-center space-x-2">
-                    <Label htmlFor={`${key}-total`} className="text-xs">Total:</Label>
-                    <Input
-                      id={`${key}-total`}
-                      type="number"
-                      min="0"
-                      value={form.containers![key as keyof typeof form.containers] || 0}
-                      onChange={(e) => setForm(prev => ({
-                        ...prev,
-                        containers: {
-                          ...prev.containers!,
-                          [key]: parseInt(e.target.value) || 0
-                        }
-                      }))}
-                      className="w-20"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-sm text-muted-foreground">Positivos para larvas</Label>
-                  <div className="flex items-center space-x-2">
-                    <Label htmlFor={`${key}-positive`} className="text-xs">Positivos:</Label>
-                    <Input
-                      id={`${key}-positive`}
-                      type="number"
-                      min="0"
-                      max={form.containers![key as keyof typeof form.containers] || 0}
-                      value={form.positiveContainers![key as keyof typeof form.positiveContainers] || 0}
-                      onChange={(e) => setForm(prev => ({
-                        ...prev,
-                        positiveContainers: {
-                          ...prev.positiveContainers!,
-                          [key]: parseInt(e.target.value) || 0
-                        }
-                      }))}
-                      className="w-20"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent> */}
-      </Card>
-
-      {/* Species and Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Bug className="h-5 w-5" />
-            <span>Espécies e Ações Realizadas</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Espécies de larvas identificadas</Label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {larvaeSpecies.map(species => (
-                <div key={species} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={species}
-                    checked={form.larvaeSpecies!.includes(species) || false}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        setForm(prev => ({
-                          ...prev,
-                          larvaeSpecies: [...(prev.larvaeSpecies || []), species]
-                        }));
-                      } else {
-                        setForm(prev => ({
-                          ...prev,
-                          larvaeSpecies: prev.larvaeSpecies?.filter(s => s !== species) || []
-                        }));
-                      }
-                    }}
-                  />
-                  <Label htmlFor={species} className="text-sm">{species}</Label>
-                </div>
+        <CardContent>
+          <Select value={selectedAgentId} onValueChange={onSelectedAgentChange}>
+            <SelectTrigger disabled={isLoadingAgents || agents.length === 0}>
+              <SelectValue placeholder={isLoadingAgents ? 'Carregando agentes...' : 'Selecione um agente'} />
+            </SelectTrigger>
+            <SelectContent>
+              {agents.map((agent) => (
+                <SelectItem key={agent.id} value={agent.id}>
+                  {agent.name}
+                </SelectItem>
               ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="treatmentApplied"
-                checked={form.treatmentApplied || false}
-                onCheckedChange={(checked) => setForm(prev => ({ ...prev, treatmentApplied: checked as boolean }))}
-              />
-              <Label htmlFor="treatmentApplied">Tratamento aplicado</Label>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="eliminationAction"
-                checked={form.eliminationAction || false}
-                onCheckedChange={(checked) => setForm(prev => ({ ...prev, eliminationAction: checked as boolean }))}
-              />
-              <Label htmlFor="eliminationAction">Ação de eliminação</Label>
-            </div>
-          </div>
+            </SelectContent>
+          </Select>
+          {agents.length === 0 && !isLoadingAgents && (
+            <p className="text-sm text-muted-foreground mt-2">
+              Nenhum agente ativo encontrado para esta organização.
+            </p>
+          )}
         </CardContent>
       </Card>
     </>

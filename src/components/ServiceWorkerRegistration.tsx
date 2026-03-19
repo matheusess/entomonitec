@@ -21,8 +21,13 @@ export function ServiceWorkerRegistration() {
       return;
     }
 
-    // In dev, remove old SW/caches to avoid stale chunk URLs (e.g. port 3001) breaking HMR.
-    if (process.env.NODE_ENV === "development" && "serviceWorker" in navigator) {
+    const isLocalHost =
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+    const shouldDisableSW = process.env.NODE_ENV === "development" || isLocalHost;
+
+    // In dev/localhost, remove old SW/caches to avoid stale chunk URLs and skip registration.
+    if (shouldDisableSW && "serviceWorker" in navigator) {
       void (async () => {
         try {
           const registrations = await navigator.serviceWorker.getRegistrations();
@@ -52,11 +57,38 @@ export function ServiceWorkerRegistration() {
 
     const sw = window.serwist;
 
+    // Recover from stale runtime references after deploys by reloading once.
+    const handleChunkLoadError = async (event: ErrorEvent) => {
+      const message = event.message || "";
+      if (!message.includes("ChunkLoadError") && !message.includes("Loading chunk")) {
+        return;
+      }
+
+      const reloadFlag = "chunk-load-recovery-attempted";
+      if (sessionStorage.getItem(reloadFlag) === "1") {
+        return;
+      }
+
+      sessionStorage.setItem(reloadFlag, "1");
+      try {
+        await sw.update();
+      } catch {
+        // Best effort: reload even if update fails.
+      }
+      window.location.reload();
+    };
+
+    window.addEventListener("error", handleChunkLoadError);
+
     sw.addEventListener("waiting", () => {
       setUpdateAvailable(true);
     });
 
     sw.register();
+
+    return () => {
+      window.removeEventListener("error", handleChunkLoadError);
+    };
   }, []);
 
   if (!updateAvailable) return null;

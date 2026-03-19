@@ -359,7 +359,7 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
                   </div>
                 </div>
 
-                <div>
+                {/* <div>
                   <h4 className="font-medium mb-3">Inspeção de Recipientes</h4>
                   {renderLIRAAContainers(visit.containers, visit.positiveContainers)}
                 </div>
@@ -375,7 +375,7 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
                       ))}
                     </div>
                   </div>
-                )}
+                )} */}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>

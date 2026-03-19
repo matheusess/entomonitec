@@ -93,6 +93,7 @@ export interface LIRAAVisitForm extends VisitFormBase {
     d2: number;
     e: number;
   };
+  larvaeFound: boolean;
   larvaeSpecies: string[];
   treatmentApplied: boolean;
   eliminationAction: boolean;
@@ -101,32 +102,40 @@ export interface LIRAAVisitForm extends VisitFormBase {
 //TODO -> ajustar a interface para o tipo Ovitrampas, que tem campos diferentes do LIRAA, e criar um componente específico para esse tipo de visita (com os campos específicos)
 export interface OvitrampasVisitForm extends VisitFormBase {
   type: 'ovitrampas';
+  dataVisita: Date;
+  ovitrapId?: string;
+  ovitrapNome?: string;
+  ovitrapCodigo?: string;
+  ovitrapEndereco?: string;
   propertyType: 'residential' | 'commercial' | 'institutional' | 'vacant';
   inspected: boolean;
   refused: boolean;
   closed: boolean;
-  containers: {
-    a1: number; // Reservatórios de água
-    a2: number; // Depósitos móveis
-    b: number;  // Depósitos fixos
-    c: number;  // Passíveis de remoção
-    d1: number; // Pneus
-    d2: number; // Lixo
-    e: number;  // Naturais
-  };
-  positiveContainers: {
-    a1: number;
-    a2: number;
-    b: number;
-    c: number;
-    d1: number;
-    d2: number;
-    e: number;
-  };
-  larvaeSpecies: string[];
+  // containers: {
+  //   a1: number; // Reservatórios de água
+  //   a2: number; // Depósitos móveis
+  //   b: number;  // Depósitos fixos
+  //   c: number;  // Passíveis de remoção
+  //   d1: number; // Pneus
+  //   d2: number; // Lixo
+  //   e: number;  // Naturais
+  // };
+  // positiveContainers: {
+  //   a1: number;
+  //   a2: number;
+  //   b: number;
+  //   c: number;
+  //   d1: number;
+  //   d2: number;
+  //   e: number;
+  // };
+  // larvaeSpecies: string[];
   treatmentApplied: boolean;
   eliminationAction: boolean;
   liraaIndex?: number; // Índice calculado para o LIRAa
+
+  larvaeFound: boolean;
+  manutencaoRealizada: boolean;
 }
 
 export type VisitForm = RoutineVisitForm | LIRAAVisitForm | OvitrampasVisitForm;
