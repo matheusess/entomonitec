@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { DatePickerInput } from '@/components/ui/date-picker-input';
 import { toast } from '@/components/ui/use-toast';
 import PhotoUpload from '@/components/PhotoUpload';
 import VisitDetailsModal from '@/components/VisitDetailsModal';
@@ -44,6 +45,7 @@ import {
   LIRAAVisitForm,
   CreateRoutineVisitRequest,
   CreateLIRAAVisitRequest,
+  CreateOvitrampasVisitRequest,
   OvitrampasVisitForm
 } from '@/types/visits';
 import { useVisits } from '@/hooks/useVisits';
@@ -58,6 +60,7 @@ import logger from '@/lib/logger';
 import { parseVisitTimestamp } from '@/lib/utils';
 import { ovitrapService } from '@/services/ovitrapService';
 import { IOvitrap } from '@/types/ovitrap';
+import { IUser } from '@/types/organization';
 import { UserService, IUserWithId } from '@/services/userService';
 
 export default function Visits() {
@@ -81,6 +84,10 @@ export default function Visits() {
   const [isEditingOvitrampas, setIsEditingOvitrampas] = useState(false);
   const [editingOvitrampasVisit, setEditingOvitrampasVisit] = useState<OvitrampasVisitForm | null>(null);
   const [tempOvitrampasQuantities, setTempOvitrampasQuantities] = useState({ ovos: 0, larvas: 0 });
+  const [isEditingOvitrampasFullForm, setIsEditingOvitrampasFullForm] = useState(false);
+  const [editingOvitrampasFullFormVisit, setEditingOvitrampasFullFormVisit] = useState<OvitrampasVisitForm | null>(null);
+  const [editingOvitrampasFullFormData, setEditingOvitrampasFullFormData] = useState<Partial<OvitrampasVisitForm>>({});
+  const [editingOvitrampasFullFormAgentId, setEditingOvitrampasFullFormAgentId] = useState('');
 
   // Hook para gerenciar visitas
   const { visits: savedVisits, syncVisits, getStats, loadVisits } = useVisits();
@@ -475,6 +482,69 @@ export default function Visits() {
     setIsEditingOvitrampas(true);
   };
 
+  const handleEditOvitrampasFullForm = (visit: OvitrampasVisitForm) => {
+    setEditingOvitrampasFullFormVisit(visit);
+    setEditingOvitrampasFullFormData({ ...visit });
+    setEditingOvitrampasFullFormAgentId((visit as any).agentId || '');
+    setIsEditingOvitrampasFullForm(true);
+  };
+
+  const handleSaveOvitrampasFullForm = async () => {
+    if (!editingOvitrampasFullFormVisit) return;
+
+    try {
+      await visitsService.updateVisit(editingOvitrampasFullFormVisit.id, {
+        ovitrapId: editingOvitrampasFullFormData.ovitrapId || undefined,
+        ovitrapNome: editingOvitrampasFullFormData.ovitrapNome,
+        ovitrapCodigo: editingOvitrampasFullFormData.ovitrapCodigo,
+        ovitrapEndereco: editingOvitrampasFullFormData.ovitrapEndereco,
+        inspected: editingOvitrampasFullFormData.inspected,
+        refused: editingOvitrampasFullFormData.refused,
+        closed: editingOvitrampasFullFormData.closed,
+        larvaeFound: editingOvitrampasFullFormData.larvaeFound,
+        manutencaoRealizada: editingOvitrampasFullFormData.manutencaoRealizada,
+        dataVisita: editingOvitrampasFullFormData.dataVisita,
+        observations: editingOvitrampasFullFormData.observations,
+        neighborhood: editingOvitrampasFullFormData.neighborhood,
+      });
+
+      // Verificar conectividade e sincronizar se online
+      if (isOnline) {
+        try {
+          await syncNow();
+          toast({
+            title: "Visita atualizada e sincronizada!",
+            description: "Os dados foram salvos e enviados ao servidor.",
+          });
+        } catch (syncError) {
+          logger.warn('Erro ao sincronizar automaticamente:', syncError);
+          toast({
+            title: "Visita salva localmente",
+            description: "Os dados serão sincronizados quando a conexão for restaurada.",
+          });
+        }
+      } else {
+        // Offline - apenas salva localmente e será sincronizado depois
+        toast({
+          title: "Visita salva",
+          description: "Modo offline detectado. Os dados serão sincronizados quando a internet for restaurada.",
+          variant: "default",
+        });
+      }
+
+      setIsEditingOvitrampasFullForm(false);
+      setEditingOvitrampasFullFormVisit(null);
+      loadVisits();
+    } catch (error) {
+      logger.error('Erro ao atualizar visita de ovitrampa:', error);
+      toast({
+        title: "Erro ao salvar",
+        description: "Não foi possível atualizar a visita. Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleSaveOvitrampasQuantities = async () => {
     if (!editingOvitrampasVisit) return;
 
@@ -484,10 +554,29 @@ export default function Visits() {
         quantidadeLarvas: tempOvitrampasQuantities.larvas,
       });
 
-      toast({
-        title: "Contagem atualizada!",
-        description: "Os dados de contagem foram salvos com sucesso.",
-      });
+      // Verificar conectividade e sincronizar se online
+      if (isOnline) {
+        try {
+          await syncNow();
+          toast({
+            title: "Contagem atualizada e sincronizada!",
+            description: "Os dados foram salvos e enviados ao servidor.",
+          });
+        } catch (syncError) {
+          logger.warn('Erro ao sincronizar automaticamente:', syncError);
+          toast({
+            title: "Contagem salva localmente",
+            description: "Os dados serão sincronizados quando a conexão for restaurada.",
+          });
+        }
+      } else {
+        // Offline - apenas salva localmente e será sincronizado depois
+        toast({
+          title: "Contagem salva",
+          description: "Modo offline detectado. Os dados serão sincronizados quando a internet for restaurada.",
+          variant: "default",
+        });
+      }
 
       setIsEditingOvitrampas(false);
       setEditingOvitrampasVisit(null);
@@ -519,13 +608,13 @@ export default function Visits() {
 
       // Handles Ovitrampas form
       if (visitType === 'ovitrampa') {
-        const visitData: any = {
+        const visitData: CreateOvitrampasVisitRequest = {
           neighborhood: ovitrampasForm.neighborhood || 'Bairro não identificado',
           location: currentLocation,
           observations: ovitrampasForm.observations || '',
           photos: uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : visitPhotos,
           dataVisita: ovitrampasForm.dataVisita || new Date(),
-          ovitrapId: ovitrampasForm.ovitrapId || null,
+          ovitrapId: ovitrampasForm.ovitrapId || undefined,
           ovitrapNome: ovitrampasForm.ovitrapNome || '',
           ovitrapCodigo: ovitrampasForm.ovitrapCodigo || '',
           ovitrapEndereco: ovitrampasForm.ovitrapEndereco || '',
@@ -541,7 +630,7 @@ export default function Visits() {
           quantidadeLarvas: 0,
         };
 
-        newVisit = await visitsService.createOvitrampasVisit(visitData, user as any);
+        newVisit = await visitsService.createOvitrampasVisit(visitData, user as unknown as IUser);
 
         // Reset form
         setOvitrampasForm({
@@ -595,7 +684,7 @@ export default function Visits() {
           controlMeasures: routineForm.controlMeasures || []
         };
 
-        newVisit = await visitsService.createRoutineVisit(visitData, user as any);
+        newVisit = await visitsService.createRoutineVisit(visitData, user as unknown as IUser);
 
         // Reset routine form
         setRoutineForm({
@@ -639,7 +728,7 @@ export default function Visits() {
           larvaeFound: Object.values(liraaForm.positiveContainers || {}).some(count => count > 0)
         };
 
-        newVisit = await visitsService.createLIRAAVisit(visitData, user as any);
+        newVisit = await visitsService.createLIRAAVisit(visitData, user as unknown as IUser);
 
         // Reset LIRAa form
         setLIRAAForm({
@@ -1187,7 +1276,8 @@ export default function Visits() {
             }}
             onVisitUpdated={loadVisits}
             user={user}
-            onEditOvitrampasVisit={handleEditOvitrampasVisit}
+            onEditOvitrampasVisit={handleEditOvitrampasFullForm}
+            onFillOvitrampasQuantities={handleEditOvitrampasVisit}
           />
         </TabsContent>
       </Tabs>
@@ -1214,6 +1304,26 @@ export default function Visits() {
           setEditingOvitrampasVisit(null);
         }}
         isSaving={false}
+      />
+
+      {/* Modal para editar formulário completo de ovitrampas */}
+      <OvitrampasFullEditModal
+        isOpen={isEditingOvitrampasFullForm}
+        visit={editingOvitrampasFullFormVisit}
+        formData={editingOvitrampasFullFormData}
+        onFormDataChange={setEditingOvitrampasFullFormData}
+        ovitraps={ovitraps}
+        onCreateOvitrap={handleCreateOvitrap}
+        isSavingOvitrap={isSavingOvitrap}
+        agents={agents}
+        selectedAgentId={editingOvitrampasFullFormAgentId}
+        onSelectedAgentChange={setEditingOvitrampasFullFormAgentId}
+        isLoadingAgents={isLoadingAgents}
+        onSave={handleSaveOvitrampasFullForm}
+        onClose={() => {
+          setIsEditingOvitrampasFullForm(false);
+          setEditingOvitrampasFullFormVisit(null);
+        }}
       />
     </>
   );
@@ -1645,22 +1755,6 @@ function OvitrampasFormContent({
       ? `${form.ovitrapNome || 'Sem nome'} • ${form.ovitrapCodigo || 'Sem código'} • ${form.ovitrapEndereco || 'Sem endereço'}`
       : undefined;
 
-  const toDateInputValue = (date?: Date) => {
-    const value = date || new Date();
-    const pad = (num: number) => String(num).padStart(2, '0');
-    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
-  };
-
-  const handleVisitDateChange = (value: string) => {
-    const [year, month, day] = value.split('-').map(Number);
-    if (!year || !month || !day) return;
-
-    setForm((prev) => ({
-      ...prev,
-      dataVisita: new Date(year, month - 1, day),
-    }));
-  };
-
   return (
     <>
       {/* Property Information */}
@@ -1875,19 +1969,18 @@ function OvitrampasFormContent({
             Informe a data da visita da ovitrampa
           </CardDescription>
         </CardHeader>
-        <CardContent >
+        <CardContent>
           <div className="space-y-2 max-w-sm">
             <Label htmlFor="ovitrampa-data-visita">Data</Label>
-            <div className='justify-center items-center flex'>
-              <Input
-                className='items-center justify-center'
-                id="ovitrampa-data-visita"
-                type="date"
-                value={toDateInputValue(form.dataVisita)}
-                onChange={(e) => handleVisitDateChange(e.target.value)}
-              />
-
-            </div>
+            <DatePickerInput
+              id="ovitrampa-data-visita"
+              value={form.dataVisita}
+              onChange={(date) => setForm(prev => ({
+                ...prev,
+                dataVisita: date
+              }))}
+              placeholder="Selecione a data da visita"
+            />
           </div>
         </CardContent>
       </Card>
@@ -2066,13 +2159,15 @@ function VisitHistory({
   onVisitClick,
   onVisitUpdated,
   user,
-  onEditOvitrampasVisit
+  onEditOvitrampasVisit,
+  onFillOvitrampasQuantities
 }: {
   visits: (RoutineVisitForm | LIRAAVisitForm | OvitrampasVisitForm)[];
   onVisitClick: (visit: RoutineVisitForm | LIRAAVisitForm | OvitrampasVisitForm) => void;
   onVisitUpdated: () => void;
   user: any;
   onEditOvitrampasVisit?: (visit: OvitrampasVisitForm) => void;
+  onFillOvitrampasQuantities?: (visit: OvitrampasVisitForm) => void;
 }) {
   // Função para renderizar status de sincronização
   const getSyncStatusBadge = (syncStatus: string, syncError?: string) => {
@@ -2210,57 +2305,71 @@ function VisitHistory({
                   )}
                 </div>
 
-                {/* 
-                TODO -> O Editar é onde acessamos para preenchimento da contagem de larvas e ovos
-                Criar uma nova role para o agente de laboratorio
-                */}
-                {/* Botão de exclusão - só para Supervisores e Administradores */}
-                {user?.role && user.role !== 'agent' && (
-                  <div className="flex items-center space-x-2">
-                    {visit.type === 'ovitrampas' && onEditOvitrampasVisit && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEditOvitrampasVisit(visit as OvitrampasVisitForm);
-                        }}
-                        className="h-8 px-3"
-                      >
-                        <RefreshCw className="h-4 w-4 mr-1" />
-                        Editar
-                      </Button>
-                    )}
+                <div className="flex items-center space-x-2">
+                  {/* Botão de Contagem (Step 2) - acessível a agentes de laboratório */}
+                  {visit.type === 'ovitrampas' && onFillOvitrampasQuantities && (
                     <Button
                       size="sm"
-                      variant="destructive"
-                      onClick={async (e) => {
-                        e.stopPropagation(); // Evita abrir o modal de detalhes
-
-                        if (confirm(`Tem certeza que deseja excluir esta visita?\n\nBairro: ${visit.neighborhood}\nData: ${formatVisitDate(timestampDate)}\n\nEsta ação não pode ser desfeita.`)) {
-                          try {
-                            await visitsService.deleteVisit(visit.id);
-                            toast({
-                              title: "Visita excluída!",
-                              description: "A visita foi removida do sistema.",
-                            });
-                            // Recarregar a lista de visitas
-                            onVisitUpdated();
-                          } catch (error) {
-                            toast({
-                              title: "Erro ao excluir visita",
-                              description: "Não foi possível excluir a visita. Tente novamente.",
-                              variant: "destructive"
-                            });
-                          }
-                        }
+                      variant="outline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onFillOvitrampasQuantities(visit as OvitrampasVisitForm);
                       }}
-                      className="h-8 w-8 p-0"
+                      className="h-8 px-3 border-blue-300 text-blue-700 hover:bg-blue-50"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Droplets className="h-4 w-4 mr-1" />
+                      Contagem
                     </Button>
-                  </div>
-                )}
+                  )}
+
+                  {/* Botão Editar e Excluir - só para Supervisores e Administradores */}
+                  {user?.role && user.role !== 'agent' && (
+                    <>
+                      {visit.type === 'ovitrampas' && onEditOvitrampasVisit && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditOvitrampasVisit(visit as OvitrampasVisitForm);
+                          }}
+                          className="h-8 px-3"
+                        >
+                          <RefreshCw className="h-4 w-4 mr-1" />
+                          Editar
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={async (e) => {
+                          e.stopPropagation(); // Evita abrir o modal de detalhes
+
+                          if (confirm(`Tem certeza que deseja excluir esta visita?\n\nBairro: ${visit.neighborhood}\nData: ${formatVisitDate(timestampDate)}\n\nEsta ação não pode ser desfeita.`)) {
+                            try {
+                              await visitsService.deleteVisit(visit.id);
+                              toast({
+                                title: "Visita excluída!",
+                                description: "A visita foi removida do sistema.",
+                              });
+                              // Recarregar a lista de visitas
+                              onVisitUpdated();
+                            } catch (error) {
+                              toast({
+                                title: "Erro ao excluir visita",
+                                description: "Não foi possível excluir a visita. Tente novamente.",
+                                variant: "destructive"
+                              });
+                            }
+                          }
+                        }}
+                        className="h-8 w-8 p-0"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
@@ -2313,6 +2422,126 @@ function VisitHistory({
           </Card>
         )
       })}
+    </div>
+  );
+}
+
+// Ovitrampas Full Edit Modal
+function OvitrampasFullEditModal({
+  isOpen,
+  visit,
+  formData,
+  onFormDataChange,
+  ovitraps,
+  onCreateOvitrap,
+  isSavingOvitrap,
+  agents,
+  selectedAgentId,
+  onSelectedAgentChange,
+  isLoadingAgents,
+  onSave,
+  onClose,
+}: {
+  isOpen: boolean;
+  visit: OvitrampasVisitForm | null;
+  formData: Partial<OvitrampasVisitForm>;
+  onFormDataChange: React.Dispatch<React.SetStateAction<Partial<OvitrampasVisitForm>>>;
+  ovitraps: IOvitrap[];
+  onCreateOvitrap: (payload: { nome: string; codigo: string; endereco: string }) => Promise<void>;
+  isSavingOvitrap: boolean;
+  agents: IUserWithId[];
+  selectedAgentId: string;
+  onSelectedAgentChange: (value: string) => void;
+  isLoadingAgents: boolean;
+  onSave: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [isSaving, setIsSaving] = useState(false);
+
+  if (!isOpen || !visit) {
+    return null;
+  }
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await onSave();
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <CardHeader className="border-b sticky top-0 bg-white z-10">
+          <CardTitle className="flex items-center space-x-2">
+            <RefreshCw className="h-5 w-5 text-primary" />
+            <span>Editar Visita de Ovitrampa</span>
+          </CardTitle>
+          <CardDescription>
+            Editando: {visit.ovitrapNome || 'Sem nome'} ({visit.ovitrapCodigo || 'Sem código'})
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent className="p-6">
+          <OvitrampasFormContent
+            form={formData}
+            setForm={onFormDataChange}
+            larvaeSpecies={[]}
+            ovitraps={ovitraps}
+            onCreateOvitrap={onCreateOvitrap}
+            isSavingOvitrap={isSavingOvitrap}
+            agents={agents}
+            selectedAgentId={selectedAgentId}
+            onSelectedAgentChange={onSelectedAgentChange}
+            isLoadingAgents={isLoadingAgents}
+          />
+
+          {/* Observations */}
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle>Observações</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Textarea
+                value={formData.observations || ''}
+                onChange={(e) => onFormDataChange(prev => ({ ...prev, observations: e.target.value }))}
+                placeholder="Observações adicionais sobre a visita..."
+                rows={4}
+              />
+            </CardContent>
+          </Card>
+        </CardContent>
+
+        <div className="border-t bg-muted/30 p-6 flex justify-end space-x-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            disabled={isSaving}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={isSaving}
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Salvando...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                Salvar Visita
+              </>
+            )}
+          </Button>
+        </div>
+      </Card>
     </div>
   );
 }

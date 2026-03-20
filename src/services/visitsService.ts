@@ -5,6 +5,7 @@ import {
   OvitrampasVisitForm,
   CreateRoutineVisitRequest,
   CreateLIRAAVisitRequest,
+  CreateOvitrampasVisitRequest,
   UpdateVisitRequest,
   VisitResponse,
   VisitsListResponse
@@ -43,7 +44,19 @@ class VisitsService {
   async setFirebaseVisits(firebaseVisits: VisitForm[]): Promise<void> {
     try {
       if (firebaseVisits.length > 0) {
-        await db.visits.bulkPut(firebaseVisits);
+        // Obter visitas locais com status pending para não sobrescrever
+        const pendingVisits = await db.visits.where('syncStatus').equals('pending').toArray();
+        const pendingIds = new Set(pendingVisits.map(v => v.id));
+        
+        // Filtrar visitas do Firebase que não têm pendentes locais
+        const visitasAAtualizar = firebaseVisits.filter(fbVisit => !pendingIds.has(fbVisit.id));
+        
+        // Fazer bulkPut apenas das visitas que não têm pendentes
+        if (visitasAAtualizar.length > 0) {
+          await db.visits.bulkPut(visitasAAtualizar);
+        }
+        
+        logger.log(`Visitas do Firebase: ${firebaseVisits.length}, Pendentes locais: ${pendingVisits.length}, Atualizadas: ${visitasAAtualizar.length}`);
       }
     } catch (error) {
       logger.error('Erro ao persistir visitas do Firebase:', error);
@@ -159,7 +172,7 @@ class VisitsService {
   }
 
   // Criar visita Ovitrampas
-  async createOvitrampasVisit(data: any, user: IUser): Promise<OvitrampasVisitForm> {
+  async createOvitrampasVisit(data: CreateOvitrampasVisitRequest, user: IUser): Promise<OvitrampasVisitForm> {
     const visit: OvitrampasVisitForm = {
       id: this.generateId(),
       type: 'ovitrampas',
@@ -177,7 +190,7 @@ class VisitsService {
       createdAt: new Date(),
       updatedAt: new Date(),
       dataVisita: data.dataVisita || new Date(),
-      ovitrapId: data.ovitrapId || null,
+      ovitrapId: data.ovitrapId || undefined,
       ovitrapNome: data.ovitrapNome || '',
       ovitrapCodigo: data.ovitrapCodigo || '',
       ovitrapEndereco: data.ovitrapEndereco || '',
@@ -219,7 +232,8 @@ class VisitsService {
       const updatedVisit = {
         ...visit,
         ...updates,
-        updatedAt: new Date()
+        updatedAt: new Date(),
+        syncStatus: 'pending' as const
       };
 
       await db.visits.put(updatedVisit);
@@ -295,22 +309,58 @@ class VisitsService {
           // Marcar como sincronizando
           await this.updateLocalVisit({ ...visit, syncStatus: 'syncing' });
 
-          // Tentar salvar no Firebase
-          const { id: firebaseId, photos: syncedPhotos } = await firebaseVisitsService.createVisit(visit);
+          // Verificar se já existe no Firebase (tem firebaseId)
+          if (visit.firebaseId) {
+            // UPDATE - visita já existe no Firebase
+            logger.log(`🔄 Atualizando visita ${visitId} no Firebase...`);
+            
+            // Preparar dados para update (sem campos que não devem mudar)
+            const updateData: UpdateVisitRequest = {
+              observations: visit.observations,
+              quantidadeOvos: (visit as any).quantidadeOvos,
+              quantidadeLarvas: (visit as any).quantidadeLarvas,
+              ovitrapNome: (visit as any).ovitrapNome,
+              ovitrapCodigo: (visit as any).ovitrapCodigo,
+              ovitrapEndereco: (visit as any).ovitrapEndereco,
+              inspected: (visit as any).inspected,
+              refused: (visit as any).refused,
+              closed: (visit as any).closed,
+              larvaeFound: (visit as any).larvaeFound,
+              manutencaoRealizada: (visit as any).manutencaoRealizada,
+              dataVisita: (visit as any).dataVisita,
+              neighborhood: visit.neighborhood,
+            };
 
-          // Marcar como sincronizada
-          await this.updateLocalVisit({
-            ...visit,
-            firebaseId,
-            photos: syncedPhotos.length > 0 ? syncedPhotos : visit.photos,
-            syncStatus: 'synced',
-            updatedAt: new Date()
-          });
+            await firebaseVisitsService.updateVisit(visit.firebaseId, updateData);
+
+            // Marcar como sincronizada
+            await this.updateLocalVisit({
+              ...visit,
+              syncStatus: 'synced',
+              updatedAt: new Date()
+            });
+
+            logger.log(`✅ Visita ${visitId} atualizada no Firebase`);
+          } else {
+            // CREATE - visita nova
+            logger.log(`🔄 Criando visita ${visitId} no Firebase...`);
+            
+            const { id: firebaseId, photos: syncedPhotos } = await firebaseVisitsService.createVisit(visit);
+
+            // Marcar como sincronizada
+            await this.updateLocalVisit({
+              ...visit,
+              firebaseId,
+              photos: syncedPhotos.length > 0 ? syncedPhotos : visit.photos,
+              syncStatus: 'synced',
+              updatedAt: new Date()
+            });
+
+            logger.log(`✅ Visita ${visitId} criada no Firebase: ${firebaseId}`);
+          }
 
           await this.removeFromSyncQueue(visitId);
           synced++;
-
-          logger.log(`✅ Visita ${visitId} sincronizada com Firebase: ${firebaseId}`);
         }
       } catch (error) {
         logger.error(`❌ Erro ao sincronizar visita ${visitId}:`, error);
@@ -412,12 +462,46 @@ class VisitsService {
 
       await this.updateLocalVisit({ ...visit, syncStatus: 'syncing' });
 
-      const { id: firebaseId, photos: syncedPhotos } = await firebaseVisitsService.createVisit(visit);
+      if (visit.firebaseId) {
+        // UPDATE
+        const updateData: UpdateVisitRequest = {
+          observations: visit.observations,
+          quantidadeOvos: (visit as any).quantidadeOvos,
+          quantidadeLarvas: (visit as any).quantidadeLarvas,
+          ovitrapNome: (visit as any).ovitrapNome,
+          ovitrapCodigo: (visit as any).ovitrapCodigo,
+          ovitrapEndereco: (visit as any).ovitrapEndereco,
+          inspected: (visit as any).inspected,
+          refused: (visit as any).refused,
+          closed: (visit as any).closed,
+          larvaeFound: (visit as any).larvaeFound,
+          manutencaoRealizada: (visit as any).manutencaoRealizada,
+          dataVisita: (visit as any).dataVisita,
+          neighborhood: visit.neighborhood,
+        };
+
+        await firebaseVisitsService.updateVisit(visit.firebaseId, updateData);
+      } else {
+        // CREATE
+        const { id: firebaseId, photos: syncedPhotos } = await firebaseVisitsService.createVisit(visit);
+
+        await this.updateLocalVisit({
+          ...visit,
+          firebaseId,
+          photos: syncedPhotos.length > 0 ? syncedPhotos : visit.photos,
+          syncStatus: 'synced',
+          syncError: undefined,
+          updatedAt: new Date()
+        });
+
+        await this.removeFromSyncQueue(visitId);
+
+        logger.log(`✅ Visita ${visitId} re-sincronizada com sucesso: ${firebaseId}`);
+        return true;
+      }
 
       await this.updateLocalVisit({
         ...visit,
-        firebaseId,
-        photos: syncedPhotos.length > 0 ? syncedPhotos : visit.photos,
         syncStatus: 'synced',
         syncError: undefined,
         updatedAt: new Date()
@@ -425,7 +509,7 @@ class VisitsService {
 
       await this.removeFromSyncQueue(visitId);
 
-      logger.log(`✅ Visita ${visitId} re-sincronizada com sucesso: ${firebaseId}`);
+      logger.log(`✅ Visita ${visitId} re-sincronizada com sucesso`);
       return true;
     } catch (error) {
       logger.error(`❌ Erro ao re-sincronizar visita ${visitId}:`, error);

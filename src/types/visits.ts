@@ -202,6 +202,28 @@ export interface CreateLIRAAVisitRequest {
   eliminationAction: boolean;
 }
 
+export interface CreateOvitrampasVisitRequest {
+  neighborhood: string;
+  location: LocationData;
+  observations: string;
+  photos: string[];
+  dataVisita: Date;
+  ovitrapId?: string;
+  ovitrapNome?: string;
+  ovitrapCodigo?: string;
+  ovitrapEndereco?: string;
+  propertyType: 'residential' | 'commercial' | 'institutional' | 'vacant';
+  inspected: boolean;
+  refused: boolean;
+  closed: boolean;
+  larvaeFound: boolean;
+  manutencaoRealizada: boolean;
+  treatmentApplied: boolean;
+  eliminationAction: boolean;
+  quantidadeOvos?: number;
+  quantidadeLarvas?: number;
+}
+
 // Interfaces para atualização
 export interface UpdateVisitRequest {
   observations?: string;
@@ -209,6 +231,18 @@ export interface UpdateVisitRequest {
   photos?: string[];
   quantidadeOvos?: number;
   quantidadeLarvas?: number;
+  // Ovitrampas fields
+  ovitrapId?: string;
+  ovitrapNome?: string;
+  ovitrapCodigo?: string;
+  ovitrapEndereco?: string;
+  inspected?: boolean;
+  refused?: boolean;
+  closed?: boolean;
+  larvaeFound?: boolean;
+  manutencaoRealizada?: boolean;
+  dataVisita?: Date;
+  neighborhood?: string;
 }
 
 // Interfaces para respostas da API

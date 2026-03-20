@@ -52,8 +52,12 @@ export function useVisits() {
             // Persistir visitas do Firebase no IndexedDB (preserva pendentes com IDs locais)
             await visitsService.setFirebaseVisits(syncedFirebaseVisits);
 
-            const allVisits = [...pendingLocalVisits, ...syncedFirebaseVisits];
-            logger.log('✅ Total de visitas:', allVisits.length, '(pendentes:', pendingLocalVisits.length, '+ firebase:', syncedFirebaseVisits.length, ')');
+            // Remover duplicatas: filtra visitas do Firebase que têm IDs pendentes locais
+            const pendingIds = new Set(pendingLocalVisits.map(v => v.id));
+            const uniqueFirebaseVisits = syncedFirebaseVisits.filter(fbVisit => !pendingIds.has(fbVisit.id));
+
+            const allVisits = [...pendingLocalVisits, ...uniqueFirebaseVisits];
+            logger.log('✅ Total de visitas:', allVisits.length, '(pendentes:', pendingLocalVisits.length, '+ firebase:', uniqueFirebaseVisits.length, ')');
             setVisits(allVisits);
           } else {
             // Se não tem visitas no Firebase, usar só as locais
