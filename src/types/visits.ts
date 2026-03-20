@@ -136,6 +136,10 @@ export interface OvitrampasVisitForm extends VisitFormBase {
 
   larvaeFound: boolean;
   manutencaoRealizada: boolean;
+
+  // Step 2 - Quantidade de ovos e larvas
+  quantidadeOvos?: number;
+  quantidadeLarvas?: number;
 }
 
 export type VisitForm = RoutineVisitForm | LIRAAVisitForm | OvitrampasVisitForm;
@@ -193,6 +197,7 @@ export interface CreateLIRAAVisitRequest {
     e: number;
   };
   larvaeSpecies: string[];
+  larvaeFound: boolean;
   treatmentApplied: boolean;
   eliminationAction: boolean;
 }
@@ -202,6 +207,8 @@ export interface UpdateVisitRequest {
   observations?: string;
   status?: 'completed' | 'refused' | 'closed';
   photos?: string[];
+  quantidadeOvos?: number;
+  quantidadeLarvas?: number;
 }
 
 // Interfaces para respostas da API

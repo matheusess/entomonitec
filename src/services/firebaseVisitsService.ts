@@ -61,8 +61,13 @@ class FirebaseVisitsService {
         const existingPhotoUrls = photos.filter(photo => photo.startsWith('http'));
         const base64Photos = photos.filter(photo => photo.startsWith('data:'));
 
+        // Remover campos undefined do visit antes de salvar no Firebase
+        const visitDataClean = Object.fromEntries(
+          Object.entries(visit).filter(([_, value]) => value !== undefined)
+        );
+
         const visitData = {
-          ...visit,
+          ...visitDataClean,
           photos: existingPhotoUrls,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()

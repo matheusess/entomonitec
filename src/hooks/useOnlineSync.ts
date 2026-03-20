@@ -3,8 +3,9 @@
  *
  * Global hook that:
  *  - Tracks online / offline state reactively.
- *  - On reconnection fires processSyncQueue() (generic write queue) AND
- *    visitsService.syncVisits() (legacy visits-specific queue).
+ *  - On reconnection fires processSyncQueue() (generic write queue),
+ *    visitsService.syncVisits() (legacy visits-specific queue), AND
+ *    ovitrapService.syncPendingOvitraps() (ovitraps queue).
  *  - Also polls every 60 seconds as a safety net (navigator.onLine can lie).
  *
  * Mount once in the root layout / provider.
@@ -15,6 +16,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { onConnectivityChange, processSyncQueue, getPendingCount } from '@/lib/firebaseWrapper';
 import { visitsService } from '@/services/visitsService';
+import { ovitrapService } from '@/services/ovitrapService';
 import logger from '@/lib/logger';
 
 const POLL_INTERVAL_MS = 60_000;
@@ -51,9 +53,10 @@ export function useOnlineSync(): OnlineSyncState {
     try {
       logger.log('[useOnlineSync] Running sync...');
 
-      const [wrapperResult, visitsResult] = await Promise.allSettled([
+      const [wrapperResult, visitsResult, ovitrapsResult] = await Promise.allSettled([
         processSyncQueue(),
         visitsService.syncVisits(),
+        ovitrapService.syncPendingOvitraps(),
       ]);
 
       if (wrapperResult.status === 'fulfilled') {
@@ -67,6 +70,13 @@ export function useOnlineSync(): OnlineSyncState {
         const { synced, errors } = visitsResult.value;
         if (synced > 0 || errors > 0) {
           logger.log(`[useOnlineSync] Visits queue — synced: ${synced}, errors: ${errors}`);
+        }
+      }
+
+      if (ovitrapsResult.status === 'fulfilled') {
+        const { synced, errors } = ovitrapsResult.value;
+        if (synced > 0 || errors > 0) {
+          logger.log(`[useOnlineSync] Ovitraps queue — synced: ${synced}, errors: ${errors}`);
         }
       }
 

@@ -158,7 +158,7 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
             </CardTitle>
             <div className="flex items-center space-x-2">
               <Badge variant={visit.type === 'routine' ? 'default' : 'secondary'}>
-                {visit.type === 'routine' ? 'Rotina' : 'LIRAa'}
+                {visit.type === 'routine' ? 'Rotina' : visit.type === 'liraa' ? 'LIRAa' : 'Ovitrampa'}
               </Badge>
               {getSyncStatusBadge(visit.syncStatus, visit.syncError)}
             </div>
@@ -231,7 +231,7 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
           </div>
 
           {/* Detalhes Específicos por Tipo */}
-          {visit.type === 'routine' ? (
+          {visit.type === 'routine' && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2 text-lg">
@@ -315,7 +315,9 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
                 )}
               </CardContent>
             </Card>
-          ) : (
+          )}
+
+          {visit.type === 'liraa' && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2 text-lg">
@@ -428,6 +430,154 @@ export default function VisitDetailsModal({ isOpen, onClose, visit }: VisitDetai
                     </Badge>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {visit.type === 'ovitrampas' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2 text-lg">
+                  <Bug className="h-4 w-4" />
+                  <span>Detalhes da Ovitrampa</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Nome da Ovitrampa</p>
+                    <p className="font-medium">{visit.ovitrapNome || 'Não disponível'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Código</p>
+                    <p className="font-medium">{visit.ovitrapCodigo || 'Não disponível'}</p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <p className="text-sm font-medium text-muted-foreground">Endereço</p>
+                    <p className="font-medium">{visit.ovitrapEndereco || 'Não disponível'}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <h4 className="font-medium mb-3">Tipo de Imóvel</h4>
+                    <Badge variant="outline">
+                      {visit.propertyType === 'residential' ? 'Residencial' :
+                        visit.propertyType === 'commercial' ? 'Comercial' :
+                          visit.propertyType === 'institutional' ? 'Institucional' : 'Terreno Baldio'}
+                    </Badge>
+                  </div>
+
+                  <div>
+                    <h4 className="font-medium mb-3">Status da Inspeção</h4>
+                    <div className="space-y-2">
+                      {visit.inspected && (
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                          <span className="text-sm">Inspecionado</span>
+                        </div>
+                      )}
+                      {visit.refused && (
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="h-4 w-4 text-red-500" />
+                          <span className="text-sm">Recusado</span>
+                        </div>
+                      )}
+                      {visit.closed && (
+                        <div className="flex items-center space-x-2">
+                          <X className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm">Fechado</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <h4 className="font-medium mb-3">Presença de Larvas</h4>
+                    <div className="flex items-center space-x-2">
+                      {visit.larvaeFound ? (
+                        <>
+                          <CheckCircle className="h-4 w-4 text-red-500" />
+                          <span className="text-red-600 font-medium">Sim</span>
+                        </>
+                      ) : (
+                        <>
+                          <X className="h-4 w-4 text-green-500" />
+                          <span className="text-green-600 font-medium">Não</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="font-medium mb-3">Manutenção Realizada</h4>
+                    <div className="flex items-center space-x-2">
+                      {visit.manutencaoRealizada ? (
+                        <>
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                          <span className="text-green-600 font-medium">Sim</span>
+                        </>
+                      ) : (
+                        <>
+                          <X className="h-4 w-4 text-gray-500" />
+                          <span className="text-gray-600 font-medium">Não</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="font-medium mb-3">Tratamento Aplicado</h4>
+                    <div className="flex items-center space-x-2">
+                      {visit.treatmentApplied ? (
+                        <>
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                          <span className="text-green-600 font-medium">Sim</span>
+                        </>
+                      ) : (
+                        <>
+                          <X className="h-4 w-4 text-gray-500" />
+                          <span className="text-gray-600 font-medium">Não</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <h4 className="font-medium mb-3">Ação de Eliminação</h4>
+                    <div className="flex items-center space-x-2">
+                      {visit.eliminationAction ? (
+                        <>
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                          <span className="text-green-600 font-medium">Sim</span>
+                        </>
+                      ) : (
+                        <>
+                          <X className="h-4 w-4 text-gray-500" />
+                          <span className="text-gray-600 font-medium">Não</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="font-medium mb-3">Quantidade de Ovos</h4>
+                    <p className="text-sm font-mono bg-muted p-2 rounded">
+                      {visit.quantidadeOvos !== undefined ? visit.quantidadeOvos : '-'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-medium mb-3">Quantidade de Larvas</h4>
+                    <p className="text-sm font-mono bg-muted p-2 rounded">
+                      {visit.quantidadeLarvas !== undefined ? visit.quantidadeLarvas : '-'}
+                    </p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           )}

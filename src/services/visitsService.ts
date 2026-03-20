@@ -2,6 +2,7 @@ import {
   VisitForm,
   RoutineVisitForm,
   LIRAAVisitForm,
+  OvitrampasVisitForm,
   CreateRoutineVisitRequest,
   CreateLIRAAVisitRequest,
   UpdateVisitRequest,
@@ -146,6 +147,7 @@ class VisitsService {
       closed: data.closed,
       containers: data.containers,
       positiveContainers: data.positiveContainers,
+      larvaeFound: data.larvaeFound,
       larvaeSpecies: data.larvaeSpecies,
       treatmentApplied: data.treatmentApplied,
       eliminationAction: data.eliminationAction,
@@ -153,6 +155,46 @@ class VisitsService {
     };
 
     await this.saveVisitLocally(visit);
+    return visit;
+  }
+
+  // Criar visita Ovitrampas
+  async createOvitrampasVisit(data: any, user: IUser): Promise<OvitrampasVisitForm> {
+    const visit: OvitrampasVisitForm = {
+      id: this.generateId(),
+      type: 'ovitrampas',
+      timestamp: new Date(),
+      location: data.location,
+      neighborhood: data.neighborhood,
+      agentName: user.name,
+      agentId: user.id,
+      userId: user.id, // Campo necessário para as regras do Firebase
+      organizationId: user.organizationId || '',
+      observations: data.observations,
+      photos: data.photos || [],
+      status: 'completed',
+      syncStatus: 'pending',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      dataVisita: data.dataVisita || new Date(),
+      ovitrapId: data.ovitrapId || null,
+      ovitrapNome: data.ovitrapNome || '',
+      ovitrapCodigo: data.ovitrapCodigo || '',
+      ovitrapEndereco: data.ovitrapEndereco || '',
+      propertyType: data.propertyType || 'residential',
+      inspected: data.inspected || true,
+      refused: data.refused || false,
+      closed: data.closed || false,
+      larvaeFound: data.larvaeFound || false,
+      manutencaoRealizada: data.manutencaoRealizada || false,
+      treatmentApplied: data.treatmentApplied || false,
+      eliminationAction: data.eliminationAction || false,
+      quantidadeOvos: data.quantidadeOvos || 0,
+      quantidadeLarvas: data.quantidadeLarvas || 0,
+    };
+
+    await this.saveVisitLocally(visit);
+    logger.log('✅ Visita de ovitrampa criada:', visit.id);
     return visit;
   }
 
@@ -228,7 +270,7 @@ class VisitsService {
 
     this._syncInProgress = true;
     try {
-    return await this._doSyncVisits();
+      return await this._doSyncVisits();
     } finally {
       this._syncInProgress = false;
     }
