@@ -55,7 +55,7 @@ export function DatePickerInput({
       onChange(datePart)
     } catch (error) {
       console.error("Erro ao processar data:", error)
-    }
+    } 
   }
 
   const handleTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {

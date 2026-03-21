@@ -140,6 +140,13 @@ export interface OvitrampasVisitForm extends VisitFormBase {
   // Step 2 - Quantidade de ovos e larvas
   quantidadeOvos?: number;
   quantidadeLarvas?: number;
+
+  // Integração Conta Ovos
+  countingObservationId?: number;   // 1-10
+  countingObservation?: string;      // Texto livre quando id=10
+  contaOvosGroupId?: number;         // ovitrap_group_id na API
+  countingDateCollect?: Date;        // data de coleta
+  contaOvosSynced?: boolean;         // já enviado para a API
 }
 
 export type VisitForm = RoutineVisitForm | LIRAAVisitForm | OvitrampasVisitForm;
@@ -222,6 +229,13 @@ export interface CreateOvitrampasVisitRequest {
   eliminationAction: boolean;
   quantidadeOvos?: number;
   quantidadeLarvas?: number;
+
+  // Integração Conta Ovos
+  countingObservationId?: number;
+  countingObservation?: string;
+  contaOvosGroupId?: number;
+  countingDateCollect?: Date;
+  contaOvosSynced?: boolean;
 }
 
 // Interfaces para atualização
@@ -243,6 +257,12 @@ export interface UpdateVisitRequest {
   manutencaoRealizada?: boolean;
   dataVisita?: Date;
   neighborhood?: string;
+  // Integração Conta Ovos
+  countingObservationId?: number;
+  countingObservation?: string;
+  contaOvosGroupId?: number;
+  countingDateCollect?: Date;
+  contaOvosSynced?: boolean;
 }
 
 // Interfaces para respostas da API

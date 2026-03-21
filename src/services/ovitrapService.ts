@@ -43,6 +43,18 @@ class OvitrapService {
       isActive: true,
       createdAt: now,
       updatedAt: now,
+      // Campos Conta Ovos (opcionais)
+      ...(data.contaOvosGroupId !== undefined && { contaOvosGroupId: data.contaOvosGroupId }),
+      ...(data.lat !== undefined && { lat: data.lat }),
+      ...(data.lng !== undefined && { lng: data.lng }),
+      ...(data.district && { district: data.district }),
+      ...(data.street && { street: data.street }),
+      ...(data.addressNumber && { addressNumber: data.addressNumber }),
+      ...(data.complement && { complement: data.complement }),
+      ...(data.sector && { sector: data.sector }),
+      ...(data.responsable && { responsable: data.responsable }),
+      ...(data.blockId && { blockId: data.blockId }),
+      source: 'local' as const,
     };
 
     // Tentar salvar no Firebase

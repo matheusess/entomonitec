@@ -59,7 +59,9 @@ import { useOnlineSync } from '@/hooks/useOnlineSync';
 import logger from '@/lib/logger';
 import { parseVisitTimestamp } from '@/lib/utils';
 import { ovitrapService } from '@/services/ovitrapService';
-import { IOvitrap } from '@/types/ovitrap';
+import { contaOvosService } from '@/services/contaOvosService';
+import { IOvitrap, CreateOvitrapRequest } from '@/types/ovitrap';
+import { COUNTING_OBSERVATIONS, BRASIL_UFS } from '@/types/contaovos';
 import { IUser } from '@/types/organization';
 import { UserService, IUserWithId } from '@/services/userService';
 
@@ -424,7 +426,7 @@ export default function Visits() {
     loadAgents();
   }, [user?.organizationId, user?.id]);
 
-  const handleCreateOvitrap = async (payload: { nome: string; codigo: string; endereco: string }) => {
+  const handleCreateOvitrap = async (payload: Omit<CreateOvitrapRequest, 'organizationId' | 'createdBy'>) => {
     if (!user?.organizationId || !user?.id) {
       toast({
         title: 'Não foi possível salvar a identificação',
@@ -442,6 +444,26 @@ export default function Visits() {
         createdBy: user.id,
       });
 
+      // Registrar no Conta Ovos (online: envia agora; offline: enfileira para sync)
+      if (payload.contaOvosGroupId && payload.lat !== undefined && payload.lng !== undefined) {
+        const today = format(new Date(), 'yyyy-MM-dd');
+        await contaOvosService.queueInstallAndCount({
+          ovitrap_group_id: payload.contaOvosGroupId,
+          ovitrap_lat: payload.lat,
+          ovitrap_lng: payload.lng,
+          ovitrap_address_district: payload.district,
+          ovitrap_address_street: payload.street,
+          ovitrap_address_number: payload.addressNumber,
+          ovitrap_address_complement: payload.complement,
+          ovitrap_address_sector: payload.sector,
+          ovitrap_responsable: payload.responsable,
+          ovitrap_block_id: payload.blockId,
+          date: today,
+          counting_observation_id: 1,
+          counting_eggs: 0,
+        }, isOnline);
+      }
+
       // Limpar cache para forçar recarga
       await ovitrapService.clearOvitrapsCache(user.organizationId);
 
@@ -452,9 +474,10 @@ export default function Visits() {
       setOvitrampasForm(prev => ({
         ...prev,
         ovitrapId: created.id,
-        ovitrapNome: created.nome || payload.nome,
-        ovitrapCodigo: created.codigo || payload.codigo,
-        ovitrapEndereco: created.endereco || payload.endereco,
+        ovitrapNome: created.nome || payload.nome || '',
+        ovitrapCodigo: created.codigo || payload.codigo || '',
+        ovitrapEndereco: created.endereco || payload.endereco || '',
+        contaOvosGroupId: created.contaOvosGroupId,
       }));
 
       toast({
@@ -628,9 +651,30 @@ export default function Visits() {
           eliminationAction: ovitrampasForm.eliminationAction || false,
           quantidadeOvos: 0,
           quantidadeLarvas: 0,
+          countingObservationId: ovitrampasForm.countingObservationId || 1,
+          countingObservation: ovitrampasForm.countingObservation || '',
+          contaOvosGroupId: ovitrampasForm.contaOvosGroupId,
         };
 
         newVisit = await visitsService.createOvitrampasVisit(visitData, user as unknown as IUser);
+
+        // Enviar leitura para API Conta Ovos se online e ovitrampa tem group_id
+        if (isOnline && ovitrampasForm.contaOvosGroupId) {
+          const apiResult = await contaOvosService.postCounting({
+            ovitrap_group_id: ovitrampasForm.contaOvosGroupId,
+            ovitrap_lat: currentLocation.latitude,
+            ovitrap_lng: currentLocation.longitude,
+            date: format(ovitrampasForm.dataVisita || new Date(), 'yyyy-MM-dd'),
+            counting_observation_id: ovitrampasForm.countingObservationId || 1,
+            counting_observation: ovitrampasForm.countingObservation || '',
+            counting_eggs: 0,
+          });
+          if (!apiResult.success) {
+            logger.warn('Visita salva localmente mas falhou no Conta Ovos:', apiResult.message);
+          } else {
+            logger.log('✅ Leitura enviada para Conta Ovos');
+          }
+        }
 
         // Reset form
         setOvitrampasForm({
@@ -1106,6 +1150,7 @@ export default function Visits() {
                 selectedAgentId={selectedAgentId}
                 onSelectedAgentChange={setSelectedAgentId}
                 isLoadingAgents={isLoadingAgents}
+                currentLocation={currentLocation}
               />
             )}
 
@@ -1690,25 +1735,64 @@ function OvitrampasFormContent({
   selectedAgentId,
   onSelectedAgentChange,
   isLoadingAgents,
+  currentLocation,
 }: {
   form: Partial<OvitrampasVisitForm>;
   setForm: React.Dispatch<React.SetStateAction<Partial<OvitrampasVisitForm>>>;
-  larvaeSpecies: string[];
+  larvaeSpecies?: string[];
   ovitraps: IOvitrap[];
-  onCreateOvitrap: (payload: { nome: string; codigo: string; endereco: string }) => Promise<void>;
+  onCreateOvitrap: (payload: Omit<CreateOvitrapRequest, 'organizationId' | 'createdBy'>) => Promise<void>;
   isSavingOvitrap: boolean;
   agents: IUserWithId[];
   selectedAgentId: string;
   onSelectedAgentChange: (value: string) => void;
   isLoadingAgents: boolean;
+  currentLocation?: LocationData | null;
 }) {
   const ADD_NEW_OVITRAP = '__add_new_ovitrap__';
   const [showCreateIdentificationForm, setShowCreateIdentificationForm] = useState(false);
-  const [newIdentification, setNewIdentification] = useState({
-    nome: '',
-    codigo: '',
-    endereco: '',
-  });
+  // Somente os campos que a API Conta Ovos espera no POST
+  const EMPTY_NEW_OVITRAP = {
+    contaOvosGroupId: '',
+    district: '',
+    street: '',
+    addressNumber: '',
+    complement: '',
+    sector: '',
+    responsable: '',
+    blockId: '',
+  };
+  const [newIdentification, setNewIdentification] = useState(EMPTY_NEW_OVITRAP);
+
+  // Conta Ovos API integration
+  const [selectedState, setSelectedState] = useState('');
+  const [apiOvitraps, setApiOvitraps] = useState<IOvitrap[]>([]);
+  const [isLoadingApiOvitraps, setIsLoadingApiOvitraps] = useState(false);
+
+  useEffect(() => {
+    if (!selectedState) {
+      setApiOvitraps([]);
+      return;
+    }
+    let cancelled = false;
+    const fetchApiOvitraps = async () => {
+      setIsLoadingApiOvitraps(true);
+      try {
+        const results = await contaOvosService.getLastCounting({ state: selectedState });
+        if (!cancelled) {
+          setApiOvitraps(results.map(item => contaOvosService.mapToOvitrap(item, '')));
+        }
+      } catch {
+        // silent — API ovitraps are optional
+      } finally {
+        if (!cancelled) setIsLoadingApiOvitraps(false);
+      }
+    };
+    fetchApiOvitraps();
+    return () => { cancelled = true; };
+  }, [selectedState]);
+
+  const mergedOvitraps = [...ovitraps, ...apiOvitraps];
 
   const handleSelectIdentification = (value: string) => {
     if (value === ADD_NEW_OVITRAP) {
@@ -1716,7 +1800,7 @@ function OvitrampasFormContent({
       return;
     }
 
-    const selected = ovitraps.find(item => item.id === value);
+    const selected = mergedOvitraps.find(item => item.id === value);
     if (!selected) {
       return;
     }
@@ -1728,26 +1812,51 @@ function OvitrampasFormContent({
       ovitrapNome: selected.nome || '',
       ovitrapCodigo: selected.codigo || '',
       ovitrapEndereco: selected.endereco || '',
+      contaOvosGroupId: selected.contaOvosGroupId,
     }));
   };
 
   const handleSaveNewIdentification = async () => {
-    const nome = newIdentification.nome.trim();
-    const codigo = newIdentification.codigo.trim();
-    const endereco = newIdentification.endereco.trim();
+    const gid = newIdentification.contaOvosGroupId.trim();
+    const street = newIdentification.street.trim();
+    const addressNumber = newIdentification.addressNumber.trim();
+    const district = newIdentification.district.trim();
+    const responsable = newIdentification.responsable.trim();
 
-    if (!nome && !codigo && !endereco) {
+    if (!gid && !street && !responsable) {
       toast({
-        title: 'Preencha ao menos um dos campos',
-        description: 'Nome, código e endereço para criar essa identificação.',
+        title: 'Preencha ao menos um campo',
+        description: 'Informe o ID do Grupo, o Responsável ou o Endereço para criar a identificação.',
         variant: 'destructive',
       });
       return;
     }
 
-    await onCreateOvitrap({ nome, codigo, endereco });
+    // Campos locais gerados automaticamente a partir dos dados do Conta Ovos
+    const autoNome =
+      responsable ||
+      [street, addressNumber].filter(Boolean).join(', ') ||
+      (gid ? `Ovitrampa ${gid}` : 'Nova Ovitrampa');
+    const autoCodigo = gid ? `GRP-${gid}` : `OVT-${Date.now()}`;
+    const autoEndereco = [street, addressNumber, district].filter(Boolean).join(', ');
+
+    await onCreateOvitrap({
+      nome: autoNome,
+      codigo: autoCodigo,
+      endereco: autoEndereco,
+      contaOvosGroupId: gid ? parseInt(gid, 10) : undefined,
+      lat: currentLocation?.latitude,
+      lng: currentLocation?.longitude,
+      district: district || undefined,
+      street: street || undefined,
+      addressNumber: addressNumber || undefined,
+      complement: newIdentification.complement.trim() || undefined,
+      sector: newIdentification.sector.trim() || undefined,
+      responsable: responsable || undefined,
+      blockId: newIdentification.blockId.trim() || undefined,
+    });
     setShowCreateIdentificationForm(false);
-    setNewIdentification({ nome: '', codigo: '', endereco: '' });
+    setNewIdentification(EMPTY_NEW_OVITRAP);
   };
 
   const selectedIdentificationLabel =
@@ -1757,6 +1866,44 @@ function OvitrampasFormContent({
 
   return (
     <>
+      {/* UF / Estado - Conta Ovos filter */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <MapPin className="h-5 w-5" />
+            <span>Estado (Conta Ovos)</span>
+          </CardTitle>
+          <CardDescription>
+            Selecione o estado para carregar ovitrampas da rede Conta Ovos
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Select value={selectedState} onValueChange={setSelectedState}>
+            <SelectTrigger>
+              <SelectValue placeholder="Selecione um estado (opcional)" />
+            </SelectTrigger>
+            <SelectContent>
+              {BRASIL_UFS.map((uf) => (
+                <SelectItem key={uf.code} value={uf.code}>
+                  {uf.name} ({uf.code})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {isLoadingApiOvitraps && (
+            <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Carregando ovitrampas do Conta Ovos...
+            </p>
+          )}
+          {apiOvitraps.length > 0 && !isLoadingApiOvitraps && (
+            <p className="text-xs text-green-600 mt-2">
+              {apiOvitraps.length} ovitrampa(s) carregada(s) da rede Conta Ovos.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Property Information */}
       <Card>
         <CardHeader>
@@ -1776,51 +1923,152 @@ function OvitrampasFormContent({
                 <SelectValue placeholder={selectedIdentificationLabel || "Selecione por nome, código ou endereço"} />
               </SelectTrigger>
               <SelectContent>
-                {ovitraps.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.nome || 'Sem nome'} • {item.codigo || 'Sem código'} • {item.endereco || 'Sem endereço'}
-                  </SelectItem>
-                ))}
-                <SelectItem value={ADD_NEW_OVITRAP}>Adicionar um novo</SelectItem>
+                {ovitraps.length > 0 && (
+                  <>
+                    <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">
+                      📱 Local ({ovitraps.length})
+                    </div>
+                    {ovitraps.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.nome || 'Sem nome'} • {item.codigo || 'Sem código'} • {item.endereco || 'Sem endereço'}
+                      </SelectItem>
+                    ))}
+                  </>
+                )}
+                {apiOvitraps.length > 0 && (
+                  <>
+                    <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">
+                      🌐 Conta Ovos ({apiOvitraps.length})
+                    </div>
+                    {apiOvitraps.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.nome || 'Sem nome'} • {item.codigo || 'Sem código'} • {item.endereco || 'Sem endereço'}
+                      </SelectItem>
+                    ))}
+                  </>
+                )}
+                <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t mt-1">
+                  Nova
+                </div>
+                <SelectItem value={ADD_NEW_OVITRAP}>＋ Adicionar um novo</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {showCreateIdentificationForm && (
             <div className="space-y-3 rounded-lg border p-4 bg-muted/30">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <p className="text-sm font-medium">Nova Ovitrampa</p>
+              <p className="text-xs text-muted-foreground">
+                Campos enviados para a API Conta Ovos. Nome e código são gerados automaticamente a partir do endereço/responsável.
+              </p>
+
+              {/* ID do Grupo — campo principal */}
+              <div className="space-y-2">
+                <Label htmlFor="new-ovitrap-group-id">
+                  ID do Grupo Conta Ovos <span className="text-muted-foreground">(ovitrap_group_id)</span>
+                </Label>
+                <Input
+                  id="new-ovitrap-group-id"
+                  type="number"
+                  value={newIdentification.contaOvosGroupId}
+                  onChange={(e) => setNewIdentification(prev => ({ ...prev, contaOvosGroupId: e.target.value }))}
+                  placeholder="Ex.: 12345"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label htmlFor="new-ovitrap-nome">Nome</Label>
+                  <Label htmlFor="new-ovitrap-responsavel">Responsável <span className="text-muted-foreground">(ovitrap_responsable)</span></Label>
                   <Input
-                    id="new-ovitrap-nome"
-                    value={newIdentification.nome}
-                    onChange={(e) => setNewIdentification(prev => ({ ...prev, nome: e.target.value }))}
-                    placeholder="Ex.: Escola Municipal A"
+                    id="new-ovitrap-responsavel"
+                    value={newIdentification.responsable}
+                    onChange={(e) => setNewIdentification(prev => ({ ...prev, responsable: e.target.value }))}
+                    placeholder="Ex.: Secretaria de Saúde"
                   />
                 </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor="new-ovitrap-codigo">Código</Label>
+                  <Label htmlFor="new-ovitrap-setor">Setor <span className="text-muted-foreground">(ovitrap_address_sector)</span></Label>
                   <Input
-                    id="new-ovitrap-codigo"
-                    value={newIdentification.codigo}
-                    onChange={(e) => setNewIdentification(prev => ({ ...prev, codigo: e.target.value }))}
-                    placeholder="Ex.: OVT-001"
+                    id="new-ovitrap-setor"
+                    value={newIdentification.sector}
+                    onChange={(e) => setNewIdentification(prev => ({ ...prev, sector: e.target.value }))}
+                    placeholder="Ex.: Norte"
                   />
                 </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor="new-ovitrap-endereco">Endereço</Label>
+                  <Label htmlFor="new-ovitrap-rua">Rua <span className="text-muted-foreground">(ovitrap_address_street)</span></Label>
                   <Input
-                    id="new-ovitrap-endereco"
-                    value={newIdentification.endereco}
-                    onChange={(e) => setNewIdentification(prev => ({ ...prev, endereco: e.target.value }))}
-                    placeholder="Ex.: Rua das Flores, 123"
+                    id="new-ovitrap-rua"
+                    value={newIdentification.street}
+                    onChange={(e) => setNewIdentification(prev => ({ ...prev, street: e.target.value }))}
+                    placeholder="Ex.: Rua das Flores"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-ovitrap-numero">Número <span className="text-muted-foreground">(ovitrap_address_number)</span></Label>
+                  <Input
+                    id="new-ovitrap-numero"
+                    value={newIdentification.addressNumber}
+                    onChange={(e) => setNewIdentification(prev => ({ ...prev, addressNumber: e.target.value }))}
+                    placeholder="Ex.: 123"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-ovitrap-bairro">Bairro <span className="text-muted-foreground">(ovitrap_address_district)</span></Label>
+                  <Input
+                    id="new-ovitrap-bairro"
+                    value={newIdentification.district}
+                    onChange={(e) => setNewIdentification(prev => ({ ...prev, district: e.target.value }))}
+                    placeholder="Ex.: Centro"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-ovitrap-complemento">Complemento <span className="text-muted-foreground">(ovitrap_address_complement)</span></Label>
+                  <Input
+                    id="new-ovitrap-complemento"
+                    value={newIdentification.complement}
+                    onChange={(e) => setNewIdentification(prev => ({ ...prev, complement: e.target.value }))}
+                    placeholder="Ex.: Bloco A, Sala 1"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-ovitrap-bloco">ID Bloco <span className="text-muted-foreground">(ovitrap_block_id)</span></Label>
+                  <Input
+                    id="new-ovitrap-bloco"
+                    value={newIdentification.blockId}
+                    onChange={(e) => setNewIdentification(prev => ({ ...prev, blockId: e.target.value }))}
+                    placeholder="Ex.: B-01"
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end">
+              {currentLocation ? (
+                <div className="text-xs text-green-700 rounded bg-green-50 border border-green-200 px-3 py-2">
+                  <MapPin className="h-3 w-3 inline-block mr-1" />
+                  GPS capturado: {currentLocation.latitude.toFixed(6)}, {currentLocation.longitude.toFixed(6)} — enviado como
+                  ovitrap_lat / ovitrap_lng
+                </div>
+              ) : (
+                <div className="text-xs text-amber-700 rounded bg-amber-50 border border-amber-200 px-3 py-2">
+                  <MapPin className="h-3 w-3 inline-block mr-1" />
+                  GPS não capturado. Ative o GPS para registrar a posição da ovitrampa.
+                </div>
+              )}
+
+              {!newIdentification.contaOvosGroupId && (
+                <p className="text-xs text-muted-foreground">
+                  ⚠️ Sem ID do Grupo, a ovitrampa será salva apenas localmente (não sincronizará com o Conta Ovos).
+                </p>
+              )}
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowCreateIdentificationForm(false)}
+                >
+                  Cancelar
+                </Button>
                 <Button
                   type="button"
                   onClick={handleSaveNewIdentification}
@@ -1837,6 +2085,11 @@ function OvitrampasFormContent({
               <p><strong>Nome:</strong> {form.ovitrapNome || 'Não informado'}</p>
               <p><strong>Código:</strong> {form.ovitrapCodigo || 'Não informado'}</p>
               <p><strong>Endereço:</strong> {form.ovitrapEndereco || 'Não informado'}</p>
+              {form.contaOvosGroupId && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  🌐 Conta Ovos Group ID: {form.contaOvosGroupId}
+                </p>
+              )}
             </div>
           )}
 
@@ -1883,6 +2136,55 @@ function OvitrampasFormContent({
               </div>
             </div>
           </RadioGroup>
+        </CardContent>
+      </Card>
+
+      {/* Observação da Coleta - Conta Ovos */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <FileText className="h-5 w-5" />
+            <span>Observação da Coleta</span>
+          </CardTitle>
+          <CardDescription>
+            Selecione a observação a ser registrada no Conta Ovos
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Select
+            value={form.countingObservationId !== undefined ? String(form.countingObservationId) : ''}
+            onValueChange={(value) => {
+              const observation = COUNTING_OBSERVATIONS.find(o => String(o.id) === value);
+              setForm(prev => ({
+                ...prev,
+                countingObservationId: observation?.id,
+                countingObservation: observation?.id !== 10 ? observation?.label : prev.countingObservation,
+              }));
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Selecione uma observação" />
+            </SelectTrigger>
+            <SelectContent>
+              {COUNTING_OBSERVATIONS.map((obs) => (
+                <SelectItem key={obs.id} value={String(obs.id)}>
+                  {obs.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {form.countingObservationId === 10 && (
+            <div className="space-y-2">
+              <Label htmlFor="counting-observation-detail">Descrição da observação</Label>
+              <Textarea
+                id="counting-observation-detail"
+                value={form.countingObservation || ''}
+                onChange={(e) => setForm(prev => ({ ...prev, countingObservation: e.target.value }))}
+                placeholder="Descreva a observação detalhadamente..."
+                rows={3}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -2447,7 +2749,7 @@ function OvitrampasFullEditModal({
   formData: Partial<OvitrampasVisitForm>;
   onFormDataChange: React.Dispatch<React.SetStateAction<Partial<OvitrampasVisitForm>>>;
   ovitraps: IOvitrap[];
-  onCreateOvitrap: (payload: { nome: string; codigo: string; endereco: string }) => Promise<void>;
+  onCreateOvitrap: (payload: Omit<CreateOvitrapRequest, 'organizationId' | 'createdBy'>) => Promise<void>;
   isSavingOvitrap: boolean;
   agents: IUserWithId[];
   selectedAgentId: string;
@@ -2496,6 +2798,7 @@ function OvitrampasFullEditModal({
             selectedAgentId={selectedAgentId}
             onSelectedAgentChange={onSelectedAgentChange}
             isLoadingAgents={isLoadingAgents}
+            currentLocation={undefined}
           />
 
           {/* Observations */}
