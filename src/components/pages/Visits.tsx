@@ -60,6 +60,7 @@ import logger from '@/lib/logger';
 import { parseVisitTimestamp } from '@/lib/utils';
 import { ovitrapService } from '@/services/ovitrapService';
 import { contaOvosService } from '@/services/contaOvosService';
+import { autoLinkVisit } from '@/services/rgMatchService';
 import { IOvitrap, CreateOvitrapRequest } from '@/types/ovitrap';
 import { COUNTING_OBSERVATIONS, BRASIL_UFS } from '@/types/contaovos';
 import { IUser } from '@/types/organization';
@@ -694,6 +695,27 @@ export default function Visits() {
         });
         setVisitPhotos([]);
 
+        // Tentar vincular automaticamente ao imóvel do RG
+        if (user?.organizationId) {
+          autoLinkVisit(
+            user.organizationId,
+            {
+              neighborhood: currentLocation.geocodingData?.neighborhood,
+              street: currentLocation.geocodingData?.street,
+              houseNumber: currentLocation.geocodingData?.houseNumber,
+            },
+            (newVisit as { firebaseId?: string }).firebaseId ?? '',
+            'ovitrampas',
+            newVisit.status,
+            { id: user.id, name: user.name },
+            new Date()
+          ).then((result) => {
+            if (result.linked) {
+              toast({ title: `Imóvel ${result.propertyAddress} vinculado ao RG`, description: 'Cobertura atualizada automaticamente.' });
+            }
+          });
+        }
+
         toast({
           title: "Visita de ovitrampa registrada com sucesso!",
           description: "Acesse o histórico para preencher os dados de contagem de ovos e larvas.",
@@ -795,6 +817,27 @@ export default function Visits() {
 
       // Recarregar a lista de visitas para mostrar a nova visita
       loadVisits();
+
+      // Tentar vincular automaticamente ao imóvel do RG
+      if (user?.organizationId) {
+        autoLinkVisit(
+          user.organizationId,
+          {
+            neighborhood: currentLocation.geocodingData?.neighborhood,
+            street: currentLocation.geocodingData?.street,
+            houseNumber: currentLocation.geocodingData?.houseNumber,
+          },
+          (newVisit as { firebaseId?: string }).firebaseId ?? '',
+          visitType === 'routine' ? 'routine' : 'liraa',
+          newVisit.status,
+          { id: user.id, name: user.name },
+          new Date()
+        ).then((result) => {
+          if (result.linked) {
+            toast({ title: `Imóvel ${result.propertyAddress} vinculado ao RG`, description: 'Cobertura atualizada automaticamente.' });
+          }
+        });
+      }
 
       // Limpar fotos após salvar
       setVisitPhotos([]);
