@@ -25,7 +25,8 @@ import {
   Shield,
   FileOutput,
   TrendingUp,
-  Activity
+  Activity,
+  Map
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -59,6 +60,13 @@ export default function Layout({ children }: LayoutProps) {
       icon: MapPin,
       roles: ['agent', 'supervisor', 'administrator'],
       description: 'Registro de visitas e coletas de campo'
+    },
+    {
+      path: '/registro-geografico',
+      label: 'Registro Geográfico',
+      icon: Map,
+      roles: ['supervisor', 'administrator'],
+      description: 'Gestão de quadras, imóveis e cobertura de visitas'
     },
     {
       path: '/operational',

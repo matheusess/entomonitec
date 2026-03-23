@@ -29,7 +29,7 @@ export interface BreedingSite {
 
 export interface VisitFormBase {
   id: string;
-  type: 'routine' | 'liraa';
+  type: 'routine' | 'liraa' | 'ovitrampas';
   timestamp: Date;
   location: LocationData | null;
   neighborhood: string;
@@ -93,13 +93,63 @@ export interface LIRAAVisitForm extends VisitFormBase {
     d2: number;
     e: number;
   };
+  larvaeFound: boolean;
   larvaeSpecies: string[];
   treatmentApplied: boolean;
   eliminationAction: boolean;
   liraaIndex?: number; // Índice calculado para o LIRAa
 }
+//TODO -> ajustar a interface para o tipo Ovitrampas, que tem campos diferentes do LIRAA, e criar um componente específico para esse tipo de visita (com os campos específicos)
+export interface OvitrampasVisitForm extends VisitFormBase {
+  type: 'ovitrampas';
+  dataVisita: Date;
+  ovitrapId?: string;
+  ovitrapNome?: string;
+  ovitrapCodigo?: string;
+  ovitrapEndereco?: string;
+  propertyType: 'residential' | 'commercial' | 'institutional' | 'vacant';
+  inspected: boolean;
+  refused: boolean;
+  closed: boolean;
+  // containers: {
+  //   a1: number; // Reservatórios de água
+  //   a2: number; // Depósitos móveis
+  //   b: number;  // Depósitos fixos
+  //   c: number;  // Passíveis de remoção
+  //   d1: number; // Pneus
+  //   d2: number; // Lixo
+  //   e: number;  // Naturais
+  // };
+  // positiveContainers: {
+  //   a1: number;
+  //   a2: number;
+  //   b: number;
+  //   c: number;
+  //   d1: number;
+  //   d2: number;
+  //   e: number;
+  // };
+  // larvaeSpecies: string[];
+  treatmentApplied: boolean;
+  eliminationAction: boolean;
+  liraaIndex?: number; // Índice calculado para o LIRAa
 
-export type VisitForm = RoutineVisitForm | LIRAAVisitForm;
+  larvaeFound: boolean;
+  manutencaoRealizada: boolean;
+
+  // Step 2 - Quantidade de ovos e larvas
+  quantidadeOvos?: number;
+  quantidadeLarvas?: number;
+
+  // Integração Conta Ovos
+  countingObservationId?: number;   // 1-10
+  countingObservation?: string;      // Texto livre quando id=10
+  contaOvosGroupId?: number;         // ovitrap_group_id na API
+  countingDateCollect?: Date;        // data de coleta
+  contaOvosSynced?: boolean;         // já enviado para a API
+}
+
+export type VisitForm = RoutineVisitForm | LIRAAVisitForm | OvitrampasVisitForm;
 
 // Interfaces para criação de visitas
 export interface CreateRoutineVisitRequest {
@@ -154,8 +204,38 @@ export interface CreateLIRAAVisitRequest {
     e: number;
   };
   larvaeSpecies: string[];
+  larvaeFound: boolean;
   treatmentApplied: boolean;
   eliminationAction: boolean;
+}
+
+export interface CreateOvitrampasVisitRequest {
+  neighborhood: string;
+  location: LocationData;
+  observations: string;
+  photos: string[];
+  dataVisita: Date;
+  ovitrapId?: string;
+  ovitrapNome?: string;
+  ovitrapCodigo?: string;
+  ovitrapEndereco?: string;
+  propertyType: 'residential' | 'commercial' | 'institutional' | 'vacant';
+  inspected: boolean;
+  refused: boolean;
+  closed: boolean;
+  larvaeFound: boolean;
+  manutencaoRealizada: boolean;
+  treatmentApplied: boolean;
+  eliminationAction: boolean;
+  quantidadeOvos?: number;
+  quantidadeLarvas?: number;
+
+  // Integração Conta Ovos
+  countingObservationId?: number;
+  countingObservation?: string;
+  contaOvosGroupId?: number;
+  countingDateCollect?: Date;
+  contaOvosSynced?: boolean;
 }
 
 // Interfaces para atualização
@@ -163,6 +243,26 @@ export interface UpdateVisitRequest {
   observations?: string;
   status?: 'completed' | 'refused' | 'closed';
   photos?: string[];
+  quantidadeOvos?: number;
+  quantidadeLarvas?: number;
+  // Ovitrampas fields
+  ovitrapId?: string;
+  ovitrapNome?: string;
+  ovitrapCodigo?: string;
+  ovitrapEndereco?: string;
+  inspected?: boolean;
+  refused?: boolean;
+  closed?: boolean;
+  larvaeFound?: boolean;
+  manutencaoRealizada?: boolean;
+  dataVisita?: Date;
+  neighborhood?: string;
+  // Integração Conta Ovos
+  countingObservationId?: number;
+  countingObservation?: string;
+  contaOvosGroupId?: number;
+  countingDateCollect?: Date;
+  contaOvosSynced?: boolean;
 }
 
 // Interfaces para respostas da API

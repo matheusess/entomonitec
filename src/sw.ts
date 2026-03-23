@@ -1,6 +1,5 @@
-import { defaultCache } from "@serwist/next/worker";
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
-import { CacheFirst, ExpirationPlugin, NetworkFirst, Serwist, StaleWhileRevalidate } from "serwist";
+import { CacheFirst, ExpirationPlugin, NetworkFirst, NetworkOnly, Serwist, StaleWhileRevalidate } from "serwist";
 
 // TypeScript: inform the compiler about the serwist precache manifest injected at build time
 declare global {
@@ -94,6 +93,12 @@ const serwist = new Serwist({
       }),
     },
 
+    // --- Chunks e assets do Next.js (NetworkOnly para nunca servir chunk stale) ---
+    {
+      matcher: ({ url }) => url.pathname.startsWith("/_next/static/"),
+      handler: new NetworkOnly(),
+    },
+
     // --- Nominatim / Geocodificação (StaleWhileRevalidate) ---
     {
       matcher: ({ url }) => url.hostname.includes("nominatim.openstreetmap.org"),
@@ -105,8 +110,6 @@ const serwist = new Serwist({
       }),
     },
 
-    // --- Estratégias padrão do Next.js (JS, CSS gerados pelo build) ---
-    ...defaultCache,
   ],
 });
 
