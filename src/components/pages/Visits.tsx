@@ -2303,7 +2303,7 @@ function OvitrampasFormContent({
         </CardContent>
       </Card>
 
-      {/* Visit Date */}
+      {/* Visit Date
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
@@ -2328,7 +2328,7 @@ function OvitrampasFormContent({
             />
           </div>
         </CardContent>
-      </Card>
+      </Card> */}
 
       <Card>
         <CardHeader>
