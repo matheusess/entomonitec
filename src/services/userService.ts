@@ -59,45 +59,35 @@ export class UserService {
    * Lista usuários de uma organização
    */
   static async listUsersByOrganization(organizationId: string): Promise<IUserWithId[]> {
-    return withOfflineRead<IUserWithId[]>(
-      `users_org_${organizationId}`,
-      this.COLLECTION_NAME,
-      async () => {
-        try {
-          logger.log('👥 Carregando usuários da organização:', organizationId);
-          const q = query(
-            collection(db, this.COLLECTION_NAME),
-            where('organizationId', '==', organizationId),
-            where('isActive', '==', true),
-            orderBy('createdAt', 'desc')
-          );
-          const querySnapshot = await getDocs(q);
-          const users: IUserWithId[] = [];
-          querySnapshot.forEach((doc) => {
-            const data = doc.data();
-            users.push({
-              id: doc.id,
-              name: data.name,
-              email: data.email,
-              role: data.role,
-              organizationId: data.organizationId,
-              assignedNeighborhoods: data.assignedNeighborhoods || [],
-              permissions: data.permissions || [],
-              isActive: data.isActive ?? true,
-              createdAt: data.createdAt?.toDate() || new Date(),
-              updatedAt: data.updatedAt?.toDate() || new Date(),
-              mustChangePassword: data.mustChangePassword,
-              lastLoginAt: data.lastLoginAt?.toDate()
-            });
-          });
-          logger.log('✅ Usuários carregados:', users.length);
-          return users;
-        } catch (error) {
-          logger.error('❌ Erro ao listar usuários:', error);
-          throw new Error('Falha ao carregar usuários');
-        }
-      },
-    );
+    try {
+      logger.log('👥 Carregando usuários da organização:', organizationId);
+      const q = query(collection(db, this.COLLECTION_NAME));
+      const querySnapshot = await getDocs(q);
+      const users: IUserWithId[] = [];
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        users.push({
+          id: docSnap.id,
+          name: data.name,
+          email: data.email,
+          role: data.role,
+          organizationId: data.organizationId,
+          assignedNeighborhoods: data.assignedNeighborhoods || [],
+          permissions: data.permissions || [],
+          isActive: data.isActive ?? true,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+          mustChangePassword: data.mustChangePassword,
+          lastLoginAt: data.lastLoginAt?.toDate()
+        });
+      });
+      users.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      logger.log('✅ Usuários carregados:', users.length);
+      return users;
+    } catch (error) {
+      logger.error('❌ Erro ao listar usuários:', error);
+      throw error;
+    }
   }
 
   /**
