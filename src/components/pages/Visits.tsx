@@ -2514,6 +2514,8 @@ function VisitHistory({
   onEditOvitrampasVisit?: (visit: OvitrampasVisitForm) => void;
   onFillOvitrampasQuantities?: (visit: OvitrampasVisitForm) => void;
 }) {
+  const [typeFilter, setTypeFilter] = useState<'all' | 'routine' | 'liraa' | 'ovitrampas'>('all');
+
   // Função para renderizar status de sincronização
   const getSyncStatusBadge = (syncStatus: string, syncError?: string) => {
     switch (syncStatus) {
@@ -2553,6 +2555,8 @@ function VisitHistory({
     return format(parseVisitTimestamp(timestamp), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
   };
 
+  const filteredVisits = typeFilter === 'all' ? visits : visits.filter(v => v.type === typeFilter);
+
   if (visits.length === 0) {
     return (
       <Card>
@@ -2567,11 +2571,56 @@ function VisitHistory({
     );
   }
 
-
-
   return (
     <div className="grid gap-4">
-      {visits.map((visit) => {
+      {/* Filtro por tipo */}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant={typeFilter === 'all' ? 'default' : 'outline'}
+          onClick={() => setTypeFilter('all')}
+        >
+          Todos ({visits.length})
+        </Button>
+        <Button
+          size="sm"
+          variant={typeFilter === 'routine' ? 'default' : 'outline'}
+          onClick={() => setTypeFilter('routine')}
+          className={typeFilter === 'routine' ? 'bg-blue-500 hover:bg-blue-600' : 'border-blue-300 text-blue-700 hover:bg-blue-50'}
+        >
+          <Home className="h-3 w-3 mr-1" />
+          Rotina ({visits.filter(v => v.type === 'routine').length})
+        </Button>
+        <Button
+          size="sm"
+          variant={typeFilter === 'liraa' ? 'default' : 'outline'}
+          onClick={() => setTypeFilter('liraa')}
+          className={typeFilter === 'liraa' ? 'bg-orange-500 hover:bg-orange-600' : 'border-orange-300 text-orange-700 hover:bg-orange-50'}
+        >
+          <Bug className="h-3 w-3 mr-1" />
+          LIRAa ({visits.filter(v => v.type === 'liraa').length})
+        </Button>
+        <Button
+          size="sm"
+          variant={typeFilter === 'ovitrampas' ? 'default' : 'outline'}
+          onClick={() => setTypeFilter('ovitrampas')}
+          className={typeFilter === 'ovitrampas' ? 'bg-purple-500 hover:bg-purple-600' : 'border-purple-300 text-purple-700 hover:bg-purple-50'}
+        >
+          <Droplets className="h-3 w-3 mr-1" />
+          Ovitrampa ({visits.filter(v => v.type === 'ovitrampas').length})
+        </Button>
+      </div>
+
+      {filteredVisits.length === 0 && (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <FileText className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+            <p className="text-muted-foreground">Nenhuma visita encontrada para o filtro selecionado.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {filteredVisits.map((visit) => {
         const timestampDate = parseVisitTimestamp(visit.timestamp);
         return (
           <Card key={visit.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => onVisitClick(visit)}>
